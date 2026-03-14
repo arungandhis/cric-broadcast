@@ -1,0 +1,13 @@
+{
+  "V Kohli": {
+    "batting_hand": "right",
+    "batting_style": "aggressive",
+    "jersey_number": 18,
+    "team": "India"
+  },
+  "M Starc": {
+    "bowling_style": "left_arm_fast",
+    "jersey_number": 56,
+    "team": "Australia"
+  }
+}

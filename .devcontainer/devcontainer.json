@@ -1,0 +1,6 @@
+{
+  "name": "Cric Broadcast",
+  "build": {
+    "dockerfile": "Dockerfile"
+  }
+}
