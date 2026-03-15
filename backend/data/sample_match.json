@@ -1,4 +1,3 @@
-
 {
   "innings": [
     {
@@ -7,13 +6,30 @@
         {
           "over": 1,
           "deliveries": [
-            { "ball": "1.1", "runs": { "batter": 1, "total": 1 }, "batter": "Player A", "bowler": "Player X" },
-            { "ball": "1.2", "runs": { "batter": 0, "total": 0 }, "batter": "Player A", "bowler": "Player X" },
-            { "ball": "1.3", "runs": { "batter": 4, "total": 4 }, "batter": "Player A", "bowler": "Player X" }
+            {
+              "1.1": {
+                "batter": "Player A",
+                "bowler": "Player X",
+                "runs": { "batter": 1, "total": 1 }
+              }
+            },
+            {
+              "1.2": {
+                "batter": "Player A",
+                "bowler": "Player X",
+                "runs": { "batter": 2, "total": 2 }
+              }
+            },
+            {
+              "1.3": {
+                "batter": "Player A",
+                "bowler": "Player X",
+                "runs": { "batter": 0, "total": 0 }
+              }
+            }
           ]
         }
       ]
     }
   ]
 }
-
