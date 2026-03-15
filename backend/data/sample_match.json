@@ -1,4 +1,4 @@
-cat > data/sample_match.json << 'EOF'
+
 {
   "innings": [
     {
@@ -16,4 +16,4 @@ cat > data/sample_match.json << 'EOF'
     }
   ]
 }
-EOF
+
