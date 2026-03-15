@@ -19,7 +19,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-MATCH_FILE = Path("data/sample_match.json")
+//MATCH_FILE = Path("data/sample_match.json")
+
+BASE_DIR = Path(__file__).parent.parent
+MATCH_FILE = BASE_DIR / "data" / "sample_match.json"
+
+
 BALL_DELAY = 1.5  # seconds between balls
 
 
