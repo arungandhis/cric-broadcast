@@ -36,18 +36,24 @@ class ConnectionManager:
         self.active_connections: list[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
+        print("WS: Client connected")
         await websocket.accept()
         self.active_connections.append(websocket)
+        print("WS: Active connections =", len(self.active_connections))
 
     def disconnect(self, websocket: WebSocket):
+        print("WS: Client disconnected")
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+        print("WS: Active connections =", len(self.active_connections))
 
     async def broadcast(self, message: str):
+        print("WS: Broadcasting to", len(self.active_connections), "clients")
         for connection in list(self.active_connections):
             try:
                 await connection.send_text(message)
-            except Exception:
+            except Exception as e:
+                print("WS: Error sending message:", e)
                 self.disconnect(connection)
 
 
@@ -61,12 +67,12 @@ manager = ConnectionManager()
 async def websocket_match(websocket: WebSocket):
     await manager.connect(websocket)
     try:
-        # IMPORTANT FIX:
-        # Do NOT wait for messages from frontend.
-        # Just keep the connection alive.
         while True:
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        print("WS: Unexpected error:", e)
         manager.disconnect(websocket)
 
 
@@ -74,27 +80,50 @@ async def websocket_match(websocket: WebSocket):
 # Match loading and broadcasting
 # -----------------------------
 def load_match_events():
-    with open(MATCH_FILE, "r") as f:
-        data = json.load(f)
+    print("LOAD: Loading match file:", MATCH_FILE)
+
+    try:
+        with open(MATCH_FILE, "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        print("LOAD: ERROR reading JSON:", e)
+        return []
+
+    print("LOAD: JSON loaded successfully")
 
     events = []
     for inning in data.get("innings", []):
         for over in inning.get("overs", []):
             for delivery in over.get("deliveries", []):
                 events.append(delivery)
+
+    print("LOAD: Total events parsed =", len(events))
     return events
 
 
 async def broadcast_events():
+    print("BROADCAST: Starting broadcast_events()")
+
     events = load_match_events()
+    print("BROADCAST: Events =", events)
+
+    if not events:
+        print("BROADCAST: No events found — nothing to send")
+        return
+
     for idx, event in enumerate(events, start=1):
         message = {
             "type": "ball",
             "ball_number": idx,
             "event": event,
         }
+
+        print("BROADCAST: Sending event", idx, message)
+
         await manager.broadcast(json.dumps(message))
         await asyncio.sleep(BALL_DELAY)
+
+    print("BROADCAST: Finished sending all events")
 
 
 # -----------------------------
@@ -102,5 +131,6 @@ async def broadcast_events():
 # -----------------------------
 @app.post("/run-match")
 async def run_match(background_tasks: BackgroundTasks):
+    print("API: /run-match called — starting background task")
     background_tasks.add_task(broadcast_events)
     return {"status": "Match started"}
