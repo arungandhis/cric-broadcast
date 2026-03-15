@@ -1,29 +1,49 @@
-import { Canvas } from "@react-three/fiber";
-import { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { useMatchEvents } from "./useMatchEvents";
-import { ScoreBug } from "../ui/ScoreBug";
-import { CommentaryBar } from "../ui/CommentaryBar";
 
-export function SceneRoot() {
-  const [event, setEvent] = useState(null);
+export default function SceneRoot() {
+  const [lastBall, setLastBall] = useState(null);
 
-  useMatchEvents((e) => setEvent(e));
+  const handleBall = useCallback((rawEvent) => {
+    console.log("Raw event received:", rawEvent);
+
+    // Extract Cricsheet-style delivery
+    const ballKey = Object.keys(rawEvent.event)[0];
+    const delivery = rawEvent.event[ballKey];
+
+    const parsed = {
+      ball: ballKey,
+      batter: delivery.batter,
+      bowler: delivery.bowler,
+      runs: delivery.runs.total
+    };
+
+    console.log("Parsed event:", parsed);
+
+    // Store last ball (or trigger animation here)
+    setLastBall(parsed);
+
+    // TODO: call your animation function here
+    // animateBall(parsed);
+  }, []);
+
+  // Subscribe to WebSocket events
+  useMatchEvents(handleBall);
 
   return (
-    <>
-      <Canvas camera={{ position: [0, 10, 25], fov: 45 }}>
-        <mesh position={[0, -1, 0]}>
-          <boxGeometry args={[20, 0.5, 20]} />
-          <meshStandardMaterial color="green" />
-        </mesh>
-      </Canvas>
+    <div style={{ color: "white", padding: 20 }}>
+      <h2>Match Animation</h2>
 
-      {event && (
-        <>
-          <ScoreBug score={event.score} />
-          <CommentaryBar text={event.commentary} />
-        </>
+      {lastBall ? (
+        <div>
+          <p>Ball: {lastBall.ball}</p>
+          <p>Batter: {lastBall.batter}</p>
+          <p>Bowler: {lastBall.bowler}</p>
+          <p>Runs: {lastBall.runs}</p>
+        </div>
+      ) : (
+        <p>Waiting for match events…</p>
       )}
-    </>
+    </div>
   );
 }
