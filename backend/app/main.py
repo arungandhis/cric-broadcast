@@ -19,10 +19,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+# -----------------------------
+# Correct path for Render
+# -----------------------------
 BASE_DIR = Path(__file__).parent.parent
 MATCH_FILE = BASE_DIR / "data" / "sample_match.json"
-
 
 BALL_DELAY = 1.5  # seconds between balls
 
@@ -43,12 +44,10 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: str):
-        # Send to all connected clients
         for connection in list(self.active_connections):
             try:
                 await connection.send_text(message)
             except Exception:
-                # Drop broken connections
                 self.disconnect(connection)
 
 
@@ -62,10 +61,11 @@ manager = ConnectionManager()
 async def websocket_match(websocket: WebSocket):
     await manager.connect(websocket)
     try:
-        # We don't really need to receive anything from client now,
-        # just keep the connection open.
+        # IMPORTANT FIX:
+        # Do NOT wait for messages from frontend.
+        # Just keep the connection alive.
         while True:
-            await websocket.receive_text()
+            await asyncio.sleep(0.1)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
