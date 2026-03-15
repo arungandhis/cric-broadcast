@@ -5,35 +5,43 @@ export default function SceneRoot() {
   const [lastBall, setLastBall] = useState(null);
 
   const handleBall = useCallback((rawEvent) => {
-    console.log("Raw event received:", rawEvent);
+    console.log("Raw event received in SceneRoot:", rawEvent);
 
-    // Extract Cricsheet-style delivery
-    const ballKey = Object.keys(rawEvent.event)[0];
+    if (!rawEvent || !rawEvent.event) {
+      console.warn("Invalid event shape:", rawEvent);
+      return;
+    }
+
+    const keys = Object.keys(rawEvent.event);
+    if (keys.length === 0) {
+      console.warn("Empty event object:", rawEvent.event);
+      return;
+    }
+
+    const ballKey = keys[0];
     const delivery = rawEvent.event[ballKey];
+
+    if (!delivery || !delivery.runs) {
+      console.warn("Missing delivery/runs:", delivery);
+      return;
+    }
 
     const parsed = {
       ball: ballKey,
       batter: delivery.batter,
       bowler: delivery.bowler,
-      runs: delivery.runs.total
+      runs: delivery.runs.total,
     };
 
-    console.log("Parsed event:", parsed);
-
-    // Store last ball (or trigger animation here)
+    console.log("Parsed event in SceneRoot:", parsed);
     setLastBall(parsed);
-
-    // TODO: call your animation function here
-    // animateBall(parsed);
   }, []);
 
-  // Subscribe to WebSocket events
   useMatchEvents(handleBall);
 
   return (
     <div style={{ color: "white", padding: 20 }}>
-      <h2>Match Animation</h2>
-
+      <h2>Match Animation Debug</h2>
       {lastBall ? (
         <div>
           <p>Ball: {lastBall.ball}</p>
