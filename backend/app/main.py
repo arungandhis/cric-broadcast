@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 import asyncio
@@ -6,7 +6,6 @@ import json
 
 app = FastAPI()
 
-# Allow your frontend to call the backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -19,18 +18,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -----------------------------
-# Correct path for Render
-# -----------------------------
 BASE_DIR = Path(__file__).parent.parent
-MATCH_FILE = BASE_DIR / "data" / "sample_match.json"
+DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
 
 BALL_DELAY = 1.5  # seconds between balls
 
 
-# -----------------------------
-# Connection manager for WebSocket
-# -----------------------------
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
@@ -60,9 +54,6 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-# -----------------------------
-# WebSocket endpoint
-# -----------------------------
 @app.websocket("/ws/match")
 async def websocket_match(websocket: WebSocket):
     await manager.connect(websocket)
@@ -76,35 +67,28 @@ async def websocket_match(websocket: WebSocket):
         manager.disconnect(websocket)
 
 
-# -----------------------------
-# Match loading and broadcasting
-# -----------------------------
-def load_match_events():
-    print("LOAD: Loading match file:", MATCH_FILE)
-
-    try:
-        with open(MATCH_FILE, "r") as f:
-            data = json.load(f)
-    except Exception as e:
-        print("LOAD: ERROR reading JSON:", e)
-        return []
-
-    print("LOAD: JSON loaded successfully")
-
+def load_match_events_from_data(data: dict):
+    print("LOAD: Parsing match JSON")
     events = []
     for inning in data.get("innings", []):
         for over in inning.get("overs", []):
             for delivery in over.get("deliveries", []):
                 events.append(delivery)
-
     print("LOAD: Total events parsed =", len(events))
     return events
 
 
-async def broadcast_events():
-    print("BROADCAST: Starting broadcast_events()")
+async def broadcast_events(file_path: Path):
+    print("BROADCAST: Starting broadcast_events() with file:", file_path)
 
-    events = load_match_events()
+    try:
+        with open(file_path, "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        print("BROADCAST: ERROR reading match file:", e)
+        return
+
+    events = load_match_events_from_data(data)
     print("BROADCAST: Events =", events)
 
     if not events:
@@ -126,11 +110,25 @@ async def broadcast_events():
     print("BROADCAST: Finished sending all events")
 
 
-# -----------------------------
-# HTTP endpoint to start match
-# -----------------------------
 @app.post("/run-match")
-async def run_match(background_tasks: BackgroundTasks):
-    print("API: /run-match called — starting background task")
-    background_tasks.add_task(broadcast_events)
+async def run_match(request: Request, background_tasks: BackgroundTasks):
+    print("API: /run-match called — receiving match JSON")
+
+    try:
+        data = await request.json()
+    except Exception as e:
+        print("API: ERROR parsing JSON body:", e)
+        return {"status": "error", "detail": "Invalid JSON"}
+
+    temp_file = DATA_DIR / "current_match.json"
+    try:
+        with open(temp_file, "w") as f:
+            json.dump(data, f)
+        print("API: Match JSON saved to", temp_file)
+    except Exception as e:
+        print("API: ERROR saving match file:", e)
+        return {"status": "error", "detail": "Failed to save match"}
+
+    background_tasks.add_task(broadcast_events, temp_file)
+    print("API: Background task started")
     return {"status": "Match started"}
