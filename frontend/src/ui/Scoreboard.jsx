@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from "react";
 import { useMatchEvents } from "../three/useMatchEvents";
 
-export default function Scoreboard() {
+export default function Scoreboard({ matchId }) {
   const [score, setScore] = useState({
     runs: 0,
     wickets: 0,
@@ -42,17 +42,19 @@ export default function Scoreboard() {
     });
   }, []);
 
-  useMatchEvents(handleBall);
+  useMatchEvents(matchId, handleBall);
 
   return (
-    <div style={{
-      background: "#111",
-      padding: 20,
-      borderRadius: 10,
-      color: "white",
-      marginTop: 20,
-      fontFamily: "sans-serif"
-    }}>
+    <div
+      style={{
+        background: "#111",
+        padding: 20,
+        borderRadius: 10,
+        color: "white",
+        marginTop: 20,
+        fontFamily: "sans-serif",
+      }}
+    >
       <h2 style={{ marginBottom: 10 }}>Live Scoreboard</h2>
 
       <div style={{ fontSize: 24, marginBottom: 10 }}>
