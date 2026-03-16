@@ -9,6 +9,42 @@ function formatOvers(over, ball) {
   return `${over}.${ball}`;
 }
 
+function formatDismissal(d) {
+  if (!d) return "out";
+
+  switch (d.kind) {
+    case "caught":
+      return d.fielders?.length
+        ? `c ${d.fielders.join(", ")} b ${d.bowler}`
+        : `c ? b ${d.bowler}`;
+
+    case "bowled":
+      return `b ${d.bowler}`;
+
+    case "lbw":
+      return `lbw b ${d.bowler}`;
+
+    case "stumped":
+      return d.fielders?.length
+        ? `st ${d.fielders.join(", ")} b ${d.bowler}`
+        : `st ? b ${d.bowler}`;
+
+    case "run out":
+      return d.fielders?.length
+        ? `run out (${d.fielders.join(", ")})`
+        : "run out";
+
+    case "hit wicket":
+      return `hit wicket b ${d.bowler}`;
+
+    case "retired hurt":
+      return "retired hurt";
+
+    default:
+      return d.kind;
+  }
+}
+
 export default function Scoreboard({ matchId }) {
   const [innings, setInnings] = useState({
     1: {
@@ -17,9 +53,9 @@ export default function Scoreboard({ matchId }) {
       wickets: 0,
       over: 0,
       ball: 0,
-      batters: {}, // name -> { runs, balls, fours, sixes, out }
-      bowlers: {}, // name -> { balls, runs, wickets, wides, noballs }
-      fow: [],     // [{ score, wicket, player, overStr }]
+      batters: {},
+      bowlers: {},
+      fow: [],
       extras: {
         wides: 0,
         noballs: 0,
@@ -51,7 +87,7 @@ export default function Scoreboard({ matchId }) {
 
   const [currentInnings, setCurrentInnings] = useState(1);
   const [target, setTarget] = useState(null);
-  const [maxOvers, setMaxOvers] = useState(null); // inferred from innings 1
+  const [maxOvers, setMaxOvers] = useState(null);
 
   const handleBall = useCallback(
     (rawEvent) => {
@@ -68,16 +104,12 @@ export default function Scoreboard({ matchId }) {
       setInnings((prev) => {
         const curr = { ...prev[inn] };
 
-        // Set team name
-        if (!curr.team && team) {
-          curr.team = team;
-        }
+        if (!curr.team && team) curr.team = team;
 
         const runsObj = delivery.runs || {};
         const totalRuns = runsObj.total || 0;
         const batterRuns = runsObj.batter || 0;
 
-        // Extras
         const extrasObj = delivery.extras || {};
         const wides = extrasObj.wides || 0;
         const noballs = extrasObj.noballs || 0;
@@ -92,27 +124,21 @@ export default function Scoreboard({ matchId }) {
         curr.extras.penalty += penalty;
         curr.extras.total += wides + noballs + legbyes + byes + penalty;
 
-        // Update team score
         const newRuns = curr.runs + totalRuns;
         let newWickets = curr.wickets;
 
-        // Wickets + FOW
         if (delivery.wickets && delivery.wickets.length > 0) {
           delivery.wickets.forEach((w) => {
             newWickets += 1;
-            curr.fow = [
-              ...curr.fow,
-              {
-                score: newRuns,
-                wicket: newWickets,
-                player: w.player_out,
-                overStr: formatOvers(over, ball),
-              },
-            ];
+            curr.fow.push({
+              score: newRuns,
+              wicket: newWickets,
+              player: w.player_out,
+              overStr: formatOvers(over, ball),
+            });
           });
         }
 
-        // Update batters
         const batterName = delivery.batter;
         if (batterName) {
           const prevBatter = curr.batters[batterName] || {
@@ -121,6 +147,7 @@ export default function Scoreboard({ matchId }) {
             fours: 0,
             sixes: 0,
             out: false,
+            dismissal: null,
           };
 
           const newBatter = { ...prevBatter };
@@ -130,22 +157,22 @@ export default function Scoreboard({ matchId }) {
           if (batterRuns === 4) newBatter.fours += 1;
           if (batterRuns === 6) newBatter.sixes += 1;
 
-          // Mark out if this batter is dismissed
           if (delivery.wickets) {
             delivery.wickets.forEach((w) => {
               if (w.player_out === batterName) {
                 newBatter.out = true;
+                newBatter.dismissal = {
+                  kind: w.kind,
+                  fielders: w.fielders || [],
+                  bowler: delivery.bowler || null,
+                };
               }
             });
           }
 
-          curr.batters = {
-            ...curr.batters,
-            [batterName]: newBatter,
-          };
+          curr.batters[batterName] = newBatter;
         }
 
-        // Update bowlers
         const bowlerName = delivery.bowler;
         if (bowlerName) {
           const prevBowler = curr.bowlers[bowlerName] || {
@@ -160,40 +187,30 @@ export default function Scoreboard({ matchId }) {
           newBowler.balls += 1;
           newBowler.runs += totalRuns;
 
-          if (delivery.wickets && delivery.wickets.length > 0) {
+          if (delivery.wickets) {
             newBowler.wickets += delivery.wickets.length;
           }
 
-          // wides and no-balls count against bowler
           newBowler.wides += wides;
           newBowler.noballs += noballs;
 
-          curr.bowlers = {
-            ...curr.bowlers,
-            [bowlerName]: newBowler,
-          };
+          curr.bowlers[bowlerName] = newBowler;
         }
 
-        // Update over/ball from backend (Cricsheet keys)
         curr.runs = newRuns;
         curr.wickets = newWickets;
         curr.over = over;
         curr.ball = ball;
 
-        return {
-          ...prev,
-          [inn]: curr,
-        };
+        return { ...prev, [inn]: curr };
       });
 
-      // When we see innings 2 for the first time, infer target and max overs
       if (inn === 2) {
         setInnings((prev) => {
           const inn1 = prev[1];
           if (target == null && inn1.runs > 0) {
             setTarget(inn1.runs + 1);
-            const maxOv = inn1.over + 1; // last over index + 1
-            setMaxOvers(maxOv);
+            setMaxOvers(inn1.over + 1);
           }
           return prev;
         });
@@ -240,7 +257,7 @@ export default function Scoreboard({ matchId }) {
             <th>4s</th>
             <th>6s</th>
             <th>SR</th>
-            <th>Status</th>
+            <th>Dismissal</th>
           </tr>
         </thead>
         <tbody>
@@ -255,7 +272,9 @@ export default function Scoreboard({ matchId }) {
                 <td align="center">{s.fours}</td>
                 <td align="center">{s.sixes}</td>
                 <td align="center">{sr}</td>
-                <td align="center">{s.out ? "out" : "not out"}</td>
+                <td align="center">
+                  {s.out ? formatDismissal(s.dismissal) : "not out"}
+                </td>
               </tr>
             );
           })}
@@ -322,7 +341,6 @@ export default function Scoreboard({ matchId }) {
   };
 
   const renderExtrasLine = (inn) => {
-    if (!inn.extras) return null;
     const e = inn.extras;
     return (
       <div style={{ fontSize: 14, marginTop: 5 }}>
@@ -345,7 +363,6 @@ export default function Scoreboard({ matchId }) {
     >
       <h2>Scoreboard</h2>
 
-      {/* INNINGS 1 */}
       {inn1.team && (
         <div style={{ marginBottom: 20 }}>
           <h3>Innings 1 — {inn1.team}</h3>
@@ -360,7 +377,6 @@ export default function Scoreboard({ matchId }) {
         </div>
       )}
 
-      {/* INNINGS 2 */}
       {inn2.team && (
         <div style={{ marginBottom: 20 }}>
           <h3>Innings 2 — {inn2.team}</h3>
