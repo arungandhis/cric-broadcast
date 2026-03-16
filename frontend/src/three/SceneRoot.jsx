@@ -5,7 +5,7 @@ export default function SceneRoot() {
   const [lastBall, setLastBall] = useState(null);
 
   const handleBall = useCallback((rawEvent) => {
-    console.log("Raw event received in SceneRoot:", rawEvent);
+    console.log("Raw event received:", rawEvent);
 
     if (!rawEvent || !rawEvent.event) {
       console.warn("Invalid event shape:", rawEvent);
@@ -13,18 +13,12 @@ export default function SceneRoot() {
     }
 
     const keys = Object.keys(rawEvent.event);
-    if (keys.length === 0) {
-      console.warn("Empty event object:", rawEvent.event);
-      return;
-    }
+    if (keys.length === 0) return;
 
     const ballKey = keys[0];
     const delivery = rawEvent.event[ballKey];
 
-    if (!delivery || !delivery.runs) {
-      console.warn("Missing delivery/runs:", delivery);
-      return;
-    }
+    if (!delivery || !delivery.runs) return;
 
     const parsed = {
       ball: ballKey,
@@ -33,7 +27,7 @@ export default function SceneRoot() {
       runs: delivery.runs.total,
     };
 
-    console.log("Parsed event in SceneRoot:", parsed);
+    console.log("Parsed event:", parsed);
     setLastBall(parsed);
   }, []);
 
@@ -42,6 +36,7 @@ export default function SceneRoot() {
   return (
     <div style={{ color: "white", padding: 20 }}>
       <h2>Match Animation Debug</h2>
+
       {lastBall ? (
         <div>
           <p>Ball: {lastBall.ball}</p>
