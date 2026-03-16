@@ -120,11 +120,21 @@ def load_match_events_from_data(data: dict):
 
         for over in inning.get("overs", []):
             for delivery in over.get("deliveries", []):
-                # delivery is like: { "12.3": { ... } }
+                # delivery is like: { "12.3": { ... } } in normal cases
                 ball_key = list(delivery.keys())[0]
-                over_num_str, ball_num_str = ball_key.split(".")
-                over_num = int(over_num_str)
-                ball_num = int(ball_num_str)
+
+                # Guard: skip malformed keys that don't look like "over.ball"
+                if "." not in ball_key:
+                    print(f"LOAD: Skipping malformed ball key: {ball_key}")
+                    continue
+
+                try:
+                    over_num_str, ball_num_str = ball_key.split(".", 1)
+                    over_num = int(over_num_str)
+                    ball_num = int(ball_num_str)
+                except ValueError:
+                    print(f"LOAD: Failed to parse ball key: {ball_key}")
+                    continue
 
                 events.append(
                     {
