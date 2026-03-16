@@ -50,7 +50,7 @@ async def proxy_cricsheet(zip_name: str):
 
 
 # -------------------------------------------------
-# 2. WebSocket manager (per match_id)
+# 2. WebSocket manager
 # -------------------------------------------------
 class ConnectionManager:
     def __init__(self):
@@ -135,7 +135,7 @@ def load_match_events_from_data(data: dict):
                         )
                         continue
 
-                # Old format: direct delivery object
+                # Old format
                 over_num = over.get("over", 0)
                 ball_num = idx + 1
 
@@ -154,7 +154,7 @@ def load_match_events_from_data(data: dict):
 
 
 # -------------------------------------------------
-# 4. Broadcast events (per match_id)
+# 4. Broadcast events (with metadata first)
 # -------------------------------------------------
 async def broadcast_events(file_path: Path, match_id: str):
     print("BROADCAST: Starting broadcast_events() with file:", file_path, "match_id:", match_id)
@@ -167,7 +167,7 @@ async def broadcast_events(file_path: Path, match_id: str):
         return
 
     # -------------------------------------------------
-    # SEND MATCH METADATA FIRST
+    # SEND METADATA FIRST (CRITICAL)
     # -------------------------------------------------
     try:
         info = data.get("info", {})
@@ -190,7 +190,7 @@ async def broadcast_events(file_path: Path, match_id: str):
         print("BROADCAST: Failed to send metadata:", e)
 
     # -------------------------------------------------
-    # SEND BALL-BY-BALL EVENTS
+    # SEND BALL EVENTS
     # -------------------------------------------------
     events = load_match_events_from_data(data)
 
