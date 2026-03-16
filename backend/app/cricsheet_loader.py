@@ -1,42 +1,120 @@
-import json
-from dataclasses import dataclass
-from pathlib import Path
+import React, { useState } from "react";
+import JSZip from "jszip";
 
-@dataclass
-class BallEvent:
-    match_id: str
-    innings: int
-    over: int
-    ball: int
-    batsman: str
-    bowler: str
-    runs_batsman: int
-    runs_extras: int
-    dismissal: dict | None
-    extras: dict
+export default function CricsheetLoader({ onMatchSelected }) {
+  const [loading, setLoading] = useState(false);
+  const [matches, setMatches] = useState([]);
+  const [selected, setSelected] = useState(null);
 
-def load_match(path: Path, match_id: str):
-    raw = json.loads(path.read_text())
-    balls = []
+  const loadZip = async (url) => {
+    setLoading(true);
+    setMatches([]);
 
-    for innings_idx, innings in enumerate(raw["innings"], start=1):
-        inn = list(innings.values())[0]
-        for delivery in inn["deliveries"]:
-            ((over_ball, info),) = delivery.items()
-            over, ball = map(int, over_ball.split("."))
+    try {
+      console.log("Fetching ZIP:", url);
+      const res = await fetch(url);
+      const blob = await res.blob();
 
-            balls.append(
-                BallEvent(
-                    match_id=match_id,
-                    innings=innings_idx,
-                    over=over,
-                    ball=ball,
-                    batsman=info["batsman"],
-                    bowler=info["bowler"],
-                    runs_batsman=info["runs"]["batsman"],
-                    runs_extras=info["runs"]["extras"],
-                    dismissal=info.get("wicket"),
-                    extras={k: v for k, v in info.items() if k in ["wide", "noball", "byes", "legbyes"]},
-                )
-            )
-    return balls
+      const zip = await JSZip.loadAsync(blob);
+
+      const matchList = [];
+
+      // Get all JSON files inside the ZIP
+      const files = Object.values(zip.files).filter((f) =>
+        f.name.endsWith(".json")
+      );
+
+      console.log("Found JSON files:", files.length);
+
+      for (const file of files) {
+        const text = await file.async("string");
+        const json = JSON.parse(text);
+
+        const info = json.info || {};
+        const title = `${info.teams?.join(" vs ")} — ${info.dates?.[0]}`;
+
+        matchList.push({
+          filename: file.name,
+          json,
+          title,
+        });
+
+        // Yield to UI to avoid freezing
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      console.log("Loaded matches:", matchList.length);
+      setMatches(matchList);
+    } catch (err) {
+      console.error("Error loading Cricsheet ZIP:", err);
+    }
+
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ color: "white", marginBottom: 20 }}>
+      <h2>Select Match</h2>
+
+      <button
+        onClick={() =>
+          loadZip(
+            "https://cric-broadcast-backed.onrender.com/cricsheet/ipl_json.zip"
+          )
+        }
+        style={{ padding: 10, marginRight: 10 }}
+      >
+        Load IPL
+      </button>
+
+      <button
+        onClick={() =>
+          loadZip(
+            "https://cric-broadcast-backed.onrender.com/cricsheet/t20s_json.zip"
+          )
+        }
+        style={{ padding: 10, marginRight: 10 }}
+      >
+        Load T20I
+      </button>
+
+      <button
+        onClick={() =>
+          loadZip(
+            "https://cric-broadcast-backed.onrender.com/cricsheet/odis_json.zip"
+          )
+        }
+        style={{ padding: 10, marginRight: 10 }}
+      >
+        Load ODI
+      </button>
+
+      {loading && <p>Loading matches…</p>}
+
+      {!loading && matches.length > 0 && (
+        <>
+          <select
+            value={selected || ""}
+            onChange={(e) => setSelected(e.target.value)}
+            style={{ marginTop: 20, width: "300px" }}
+          >
+            <option value="">-- Select Match --</option>
+            {matches.map((m, i) => (
+              <option key={i} value={i}>
+                {m.title}
+              </option>
+            ))}
+          </select>
+
+          <button
+            disabled={selected === null}
+            onClick={() => onMatchSelected(matches[selected].json)}
+            style={{ marginLeft: 10, padding: 10 }}
+          >
+            Start Match
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
