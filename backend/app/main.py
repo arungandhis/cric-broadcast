@@ -162,6 +162,14 @@ async def run_match(request: Request, background_tasks: BackgroundTasks):
         print("API: ERROR saving match file:", e)
         return {"status": "error", "detail": "Failed to save match"}
 
-    background_tasks.add_task(broadcast_events, temp_file)
+    # ---------------------------------------------------------
+    # IMPORTANT FIX: Delay broadcast so WebSocket can connect
+    # ---------------------------------------------------------
+    async def delayed_start():
+        await asyncio.sleep(1)  # give frontend time to connect
+        await broadcast_events(temp_file)
+
+    background_tasks.add_task(delayed_start)
     print("API: Background task started")
+
     return {"status": "Match started"}
