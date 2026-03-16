@@ -54,7 +54,6 @@ async def proxy_cricsheet(zip_name: str):
 # -------------------------------------------------
 class ConnectionManager:
     def __init__(self):
-        # match_id -> list[WebSocket]
         self.active: dict[str, list[WebSocket]] = {}
 
     async def connect(self, websocket: WebSocket, match_id: str):
@@ -98,23 +97,9 @@ async def websocket_match(websocket: WebSocket, match_id: str):
 
 
 # -------------------------------------------------
-# 3. Parse match into inning-aware events (supports old + new Cricsheet formats)
+# 3. Parse match into inning-aware events
 # -------------------------------------------------
 def load_match_events_from_data(data: dict):
-    """
-    Returns a flat list of events like:
-    {
-      "inning": <1,2,...>,
-      "team": "<team name>",
-      "over": <int>,
-      "ball": <int>,
-      "delivery": { ... }  # inner delivery object
-    }
-
-    Supports:
-    - New format: deliveries = [ { "12.3": { ... } }, ... ]
-    - Old format: deliveries = [ { "batter": "...", "bowler": "...", ... }, ... ]
-    """
     print("LOAD: Parsing match JSON")
     events = []
 
@@ -126,7 +111,7 @@ def load_match_events_from_data(data: dict):
             deliveries = over.get("deliveries", [])
             for idx, delivery in enumerate(deliveries):
 
-                # CASE 1: New Cricsheet format → { "12.3": { ... } }
+                # New format: { "12.3": { ... } }
                 if isinstance(delivery, dict) and len(delivery.keys()) == 1:
                     ball_key = list(delivery.keys())[0]
 
@@ -150,10 +135,9 @@ def load_match_events_from_data(data: dict):
                         )
                         continue
 
-                # CASE 2: Old Cricsheet format → direct delivery object
-                # deliveries = [ { "batter": "...", "bowler": "...", ... }, ... ]
+                # Old format: direct delivery object
                 over_num = over.get("over", 0)
-                ball_num = idx + 1  # 1..6 in order
+                ball_num = idx + 1
 
                 events.append(
                     {
@@ -182,13 +166,38 @@ async def broadcast_events(file_path: Path, match_id: str):
         print("BROADCAST: ERROR reading match file:", e)
         return
 
+    # -------------------------------------------------
+    # SEND MATCH METADATA FIRST
+    # -------------------------------------------------
+    try:
+        info = data.get("info", {})
+        teams = info.get("teams", ["Team A", "Team B"])
+        toss = info.get("toss", {})
+
+        meta = {
+            "type": "meta",
+            "teamA": teams[0],
+            "teamB": teams[1],
+            "tossWinner": toss.get("winner", ""),
+            "tossDecision": toss.get("decision", ""),
+        }
+
+        print("BROADCAST: Sending metadata:", meta)
+        await manager.broadcast(match_id, json.dumps(meta))
+        await asyncio.sleep(0.2)
+
+    except Exception as e:
+        print("BROADCAST: Failed to send metadata:", e)
+
+    # -------------------------------------------------
+    # SEND BALL-BY-BALL EVENTS
+    # -------------------------------------------------
     events = load_match_events_from_data(data)
 
     if not events:
         print("BROADCAST: No events found — nothing to send")
         return
 
-    # Give frontend time to connect WebSocket
     await asyncio.sleep(1)
 
     for idx, ev in enumerate(events, start=1):
