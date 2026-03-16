@@ -5,15 +5,23 @@ import Scoreboard from "./ui/Scoreboard";
 
 export default function App() {
   const [matchStarted, setMatchStarted] = useState(false);
+  const [matchId, setMatchId] = useState(null);
 
   const startMatch = async (matchJson) => {
-    console.log("Sending match JSON to backend…");
+    // Create a unique matchId for this session/tab
+    const id = crypto.randomUUID();
+    setMatchId(id);
 
-    await fetch("https://cric-broadcast-backed.onrender.com/run-match", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(matchJson),
-    });
+    console.log("Sending match JSON to backend for matchId:", id);
+
+    await fetch(
+      `https://cric-broadcast-backed.onrender.com/run-match/${id}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(matchJson),
+      }
+    );
 
     setMatchStarted(true);
   };
@@ -25,10 +33,10 @@ export default function App() {
       {!matchStarted && (
         <CricsheetLoader onMatchSelected={startMatch} />
       )}
-{matchStarted && <Scoreboard />}
 
+      {matchStarted && <Scoreboard matchId={matchId} />}
 
-      <SceneRoot />
+      <SceneRoot matchId={matchId} />
     </div>
   );
 }
