@@ -4,9 +4,7 @@ export function useMatchEvents(onBall) {
   useEffect(() => {
     const ws = new WebSocket("wss://cric-broadcast-backed.onrender.com/ws/match");
 
-    ws.onopen = () => {
-      console.log("WS connected");
-    };
+    ws.onopen = () => console.log("WS connected");
 
     ws.onmessage = (msg) => {
       console.log("WS raw message:", msg.data);
@@ -26,13 +24,8 @@ export function useMatchEvents(onBall) {
       }
     };
 
-    ws.onclose = () => {
-      console.log("WS closed");
-    };
-
-    ws.onerror = (err) => {
-      console.error("WS error:", err);
-    };
+    ws.onclose = () => console.log("WS closed");
+    ws.onerror = (err) => console.error("WS error:", err);
 
     return () => ws.close();
   }, [onBall]);
