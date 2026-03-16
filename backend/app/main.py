@@ -49,48 +49,51 @@ async def proxy_cricsheet(zip_name: str):
 
 
 # ---------------------------------------------------------
-# 2. WebSocket Connection Manager
+# 2. WebSocket Connection Manager (per match_id)
 # ---------------------------------------------------------
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: list[WebSocket] = []
+        # match_id -> list[WebSocket]
+        self.active: dict[str, list[WebSocket]] = {}
 
-    async def connect(self, websocket: WebSocket):
-        print("WS: Client connected")
+    async def connect(self, websocket: WebSocket, match_id: str):
+        print(f"WS: Client connected for match {match_id}")
         await websocket.accept()
-        self.active_connections.append(websocket)
-        print("WS: Active connections =", len(self.active_connections))
+        self.active.setdefault(match_id, []).append(websocket)
+        print("WS: Active connections for", match_id, "=", len(self.active[match_id]))
 
-    def disconnect(self, websocket: WebSocket):
-        print("WS: Client disconnected")
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-        print("WS: Active connections =", len(self.active_connections))
+    def disconnect(self, websocket: WebSocket, match_id: str):
+        print(f"WS: Client disconnected for match {match_id}")
+        conns = self.active.get(match_id, [])
+        if websocket in conns:
+            conns.remove(websocket)
+        print("WS: Active connections for", match_id, "=", len(conns))
 
-    async def broadcast(self, message: str):
-        print("WS: Broadcasting to", len(self.active_connections), "clients")
-        for connection in list(self.active_connections):
+    async def broadcast(self, match_id: str, message: str):
+        conns = list(self.active.get(match_id, []))
+        print(f"WS: Broadcasting to {len(conns)} clients for match {match_id}")
+        for connection in conns:
             try:
                 await connection.send_text(message)
             except Exception as e:
                 print("WS: Error sending message:", e)
-                self.disconnect(connection)
+                self.disconnect(connection, match_id)
 
 
 manager = ConnectionManager()
 
 
-@app.websocket("/ws/match")
-async def websocket_match(websocket: WebSocket):
-    await manager.connect(websocket)
+@app.websocket("/ws/match/{match_id}")
+async def websocket_match(websocket: WebSocket, match_id: str):
+    await manager.connect(websocket, match_id)
     try:
         while True:
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        manager.disconnect(websocket, match_id)
     except Exception as e:
         print("WS: Unexpected error:", e)
-        manager.disconnect(websocket)
+        manager.disconnect(websocket, match_id)
 
 
 # ---------------------------------------------------------
@@ -108,10 +111,10 @@ def load_match_events_from_data(data: dict):
 
 
 # ---------------------------------------------------------
-# 4. Broadcast events from a saved JSON file
+# 4. Broadcast events from a saved JSON file (per match_id)
 # ---------------------------------------------------------
-async def broadcast_events(file_path: Path):
-    print("BROADCAST: Starting broadcast_events() with file:", file_path)
+async def broadcast_events(file_path: Path, match_id: str):
+    print("BROADCAST: Starting broadcast_events() with file:", file_path, "match_id:", match_id)
 
     try:
         with open(file_path, "r") as f:
@@ -126,7 +129,7 @@ async def broadcast_events(file_path: Path):
         print("BROADCAST: No events found — nothing to send")
         return
 
-    # IMPORTANT: give frontend time to connect WebSocket
+    # Give frontend time to connect WebSocket
     await asyncio.sleep(1)
 
     for idx, event in enumerate(events, start=1):
@@ -136,19 +139,19 @@ async def broadcast_events(file_path: Path):
             "event": event,
         }
 
-        print("BROADCAST: Sending event", idx)
-        await manager.broadcast(json.dumps(message))
+        print("BROADCAST: Sending event", idx, "for match", match_id)
+        await manager.broadcast(match_id, json.dumps(message))
         await asyncio.sleep(BALL_DELAY)
 
-    print("BROADCAST: Finished sending all events")
+    print("BROADCAST: Finished sending all events for match", match_id)
 
 
 # ---------------------------------------------------------
-# 5. /run-match — Accept Cricsheet JSON from frontend
+# 5. /run-match/{match_id} — Accept Cricsheet JSON from frontend
 # ---------------------------------------------------------
-@app.post("/run-match")
-async def run_match(request: Request, background_tasks: BackgroundTasks):
-    print("API: /run-match called — receiving match JSON")
+@app.post("/run-match/{match_id}")
+async def run_match(match_id: str, request: Request, background_tasks: BackgroundTasks):
+    print(f"API: /run-match called for match_id={match_id} — receiving match JSON")
 
     try:
         data = await request.json()
@@ -156,7 +159,7 @@ async def run_match(request: Request, background_tasks: BackgroundTasks):
         print("API: ERROR parsing JSON body:", e)
         return {"status": "error", "detail": "Invalid JSON"}
 
-    temp_file = DATA_DIR / "current_match.json"
+    temp_file = DATA_DIR / f"current_match_{match_id}.json"
     try:
         with open(temp_file, "w") as f:
             json.dump(data, f)
@@ -165,7 +168,6 @@ async def run_match(request: Request, background_tasks: BackgroundTasks):
         print("API: ERROR saving match file:", e)
         return {"status": "error", "detail": "Failed to save match"}
 
-    # Start broadcast in background (broadcast_events now handles its own delay)
-    background_tasks.add_task(broadcast_events, temp_file)
-    print("API: Background task started")
-    return {"status": "Match started"}
+    background_tasks.add_task(broadcast_events, temp_file, match_id)
+    print("API: Background task started for match", match_id)
+    return {"status": "Match started", "match_id": match_id}
