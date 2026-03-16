@@ -161,9 +161,25 @@ export default function Scoreboard({ matchId }) {
             delivery.wickets.forEach((w) => {
               if (w.player_out === batterName) {
                 newBatter.out = true;
+
+                // Normalize fielder names to strings
+                const normalizedFielders = (w.fielders || []).map((f) => {
+                  if (typeof f === "string") return f;
+                  if (typeof f === "object") {
+                    return (
+                      f.name ||
+                      f.player ||
+                      f.fielder ||
+                      Object.values(f)[0] ||
+                      "Unknown"
+                    );
+                  }
+                  return String(f);
+                });
+
                 newBatter.dismissal = {
                   kind: w.kind,
-                  fielders: w.fielders || [],
+                  fielders: normalizedFielders,
                   bowler: delivery.bowler || null,
                 };
               }
@@ -273,7 +289,6 @@ export default function Scoreboard({ matchId }) {
                 <td align="center">{s.sixes}</td>
                 <td align="center">{sr}</td>
 
-                {/* FIXED: ALWAYS FORMAT DISMISSAL */}
                 <td align="center">
                   {s.out ? formatDismissal(s.dismissal) : "not out"}
                 </td>
