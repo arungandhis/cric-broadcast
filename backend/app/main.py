@@ -1,11 +1,14 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pathlib import Path
 import asyncio
 import json
+import httpx
 
 app = FastAPI()
 
+# Allow frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -24,7 +27,30 @@ DATA_DIR.mkdir(exist_ok=True)
 
 BALL_DELAY = 1.5  # seconds between balls
 
+CRICSHEET_BASE = "https://cricsheet.org/downloads"
 
+
+# ---------------------------------------------------------
+# 1. PROXY ENDPOINT — Load Cricsheet ZIPs (Fixes CORS)
+# ---------------------------------------------------------
+@app.get("/cricsheet/{zip_name}")
+async def proxy_cricsheet(zip_name: str):
+    url = f"{CRICSHEET_BASE}/{zip_name}"
+    print("Proxying Cricsheet ZIP:", url)
+
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url)
+        r.raise_for_status()
+
+    return StreamingResponse(
+        iter([r.content]),
+        media_type="application/zip",
+    )
+
+
+# ---------------------------------------------------------
+# 2. WebSocket Connection Manager
+# ---------------------------------------------------------
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
@@ -67,6 +93,9 @@ async def websocket_match(websocket: WebSocket):
         manager.disconnect(websocket)
 
 
+# ---------------------------------------------------------
+# 3. Parse Cricsheet JSON into ball events
+# ---------------------------------------------------------
 def load_match_events_from_data(data: dict):
     print("LOAD: Parsing match JSON")
     events = []
@@ -78,6 +107,9 @@ def load_match_events_from_data(data: dict):
     return events
 
 
+# ---------------------------------------------------------
+# 4. Broadcast events from a saved JSON file
+# ---------------------------------------------------------
 async def broadcast_events(file_path: Path):
     print("BROADCAST: Starting broadcast_events() with file:", file_path)
 
@@ -89,7 +121,6 @@ async def broadcast_events(file_path: Path):
         return
 
     events = load_match_events_from_data(data)
-    print("BROADCAST: Events =", events)
 
     if not events:
         print("BROADCAST: No events found — nothing to send")
@@ -102,14 +133,16 @@ async def broadcast_events(file_path: Path):
             "event": event,
         }
 
-        print("BROADCAST: Sending event", idx, message)
-
+        print("BROADCAST: Sending event", idx)
         await manager.broadcast(json.dumps(message))
         await asyncio.sleep(BALL_DELAY)
 
     print("BROADCAST: Finished sending all events")
 
 
+# ---------------------------------------------------------
+# 5. /run-match — Accept Cricsheet JSON from frontend
+# ---------------------------------------------------------
 @app.post("/run-match")
 async def run_match(request: Request, background_tasks: BackgroundTasks):
     print("API: /run-match called — receiving match JSON")
