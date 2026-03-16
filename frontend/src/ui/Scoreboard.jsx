@@ -2,7 +2,7 @@ import React, { useState, useCallback } from "react";
 import { useMatchEvents } from "../three/useMatchEvents";
 
 export default function Scoreboard({ matchId }) {
-  const [inningsData, setInningsData] = useState({
+  const [innings, setInnings] = useState({
     1: { team: "", runs: 0, wickets: 0, overs: 0, balls: 0 },
     2: { team: "", runs: 0, wickets: 0, overs: 0, balls: 0 },
   });
@@ -10,32 +10,20 @@ export default function Scoreboard({ matchId }) {
   const [currentInnings, setCurrentInnings] = useState(1);
 
   const handleBall = useCallback((rawEvent) => {
-    if (!rawEvent || rawEvent.type !== "ball" || !rawEvent.event) return;
+    if (!rawEvent || rawEvent.type !== "ball") return;
 
+    const inn = rawEvent.inning;
     const delivery = rawEvent.event;
 
-    // Extract team from delivery
-    const battingTeam = delivery.team;
+    setCurrentInnings(inn);
 
-    // Detect innings change:
-    // If the batting team changes → new innings
-    const isNewInnings =
-      inningsData[currentInnings].team &&
-      inningsData[currentInnings].team !== battingTeam;
-
-    if (isNewInnings) {
-      console.log("🔄 New innings detected!");
-      setCurrentInnings((prev) => prev + 1);
-      return;
-    }
-
-    // Update current innings
-    setInningsData((prev) => {
-      const inn = currentInnings;
+    setInnings((prev) => {
       const curr = { ...prev[inn] };
 
-      // Set team name if not set
-      if (!curr.team) curr.team = battingTeam;
+      // Set team name once
+      if (!curr.team && delivery.batter) {
+        curr.team = delivery.batter_team || "Team " + inn;
+      }
 
       // Add runs
       curr.runs += delivery.runs?.total ?? 0;
@@ -55,24 +43,22 @@ export default function Scoreboard({ matchId }) {
         [inn]: curr,
       };
     });
-  }, [currentInnings, inningsData]);
+  }, []);
 
   useMatchEvents(matchId, handleBall);
 
-  const inn1 = inningsData[1];
-  const inn2 = inningsData[2];
+  const inn1 = innings[1];
+  const inn2 = innings[2];
 
   return (
-    <div
-      style={{
-        background: "#111",
-        padding: 20,
-        borderRadius: 10,
-        color: "white",
-        marginTop: 20,
-        fontFamily: "sans-serif",
-      }}
-    >
+    <div style={{
+      background: "#111",
+      padding: 20,
+      borderRadius: 10,
+      color: "white",
+      marginTop: 20,
+      fontFamily: "sans-serif"
+    }}>
       <h2>Scoreboard</h2>
 
       {/* INNINGS 1 */}
@@ -95,8 +81,7 @@ export default function Scoreboard({ matchId }) {
         </div>
       )}
 
-      {/* CURRENT INNINGS INDICATOR */}
-      <div style={{ marginTop: 10, opacity: 0.7 }}>
+      <div style={{ opacity: 0.7 }}>
         Updating: Innings {currentInnings}
       </div>
     </div>
