@@ -7,10 +7,7 @@ export default function SceneRoot() {
   const handleBall = useCallback((rawEvent) => {
     console.log("Raw event received:", rawEvent);
 
-    if (!rawEvent || !rawEvent.event) {
-      console.warn("Invalid event shape:", rawEvent);
-      return;
-    }
+    if (!rawEvent || !rawEvent.event) return;
 
     const keys = Object.keys(rawEvent.event);
     if (keys.length === 0) return;
