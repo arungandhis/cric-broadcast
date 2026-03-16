@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback } from "react";
 import { useMatchEvents } from "./useMatchEvents";
 
@@ -7,18 +8,23 @@ export default function SceneRoot() {
   const handleBall = useCallback((rawEvent) => {
     console.log("Raw event received:", rawEvent);
 
-    if (!rawEvent || !rawEvent.event) return;
+    if (!rawEvent || rawEvent.type !== "ball" || !rawEvent.event) return;
 
-    const keys = Object.keys(rawEvent.event);
-    if (keys.length === 0) return;
+    // In your backend, `event` IS the delivery object:
+    // {
+    //   batter: "...",
+    //   bowler: "...",
+    //   runs: { total: 1, ... },
+    //   ...
+    // }
+    const delivery = rawEvent.event;
 
-    const ballKey = keys[0];
-    const delivery = rawEvent.event[ballKey];
-
-    if (!delivery || !delivery.runs) return;
+    if (!delivery.runs || typeof delivery.runs.total !== "number") {
+      return;
+    }
 
     const parsed = {
-      ball: ballKey,
+      ball: rawEvent.ball_number,
       batter: delivery.batter,
       bowler: delivery.bowler,
       runs: delivery.runs.total,
