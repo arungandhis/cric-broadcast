@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import SceneRoot from "./three/SceneRoot";
 import CricsheetLoader from "./ui/CricsheetLoader";
+import Scoreboard from "./ui/Scoreboard";
 
 export default function App() {
   const [matchStarted, setMatchStarted] = useState(false);
@@ -24,6 +25,8 @@ export default function App() {
       {!matchStarted && (
         <CricsheetLoader onMatchSelected={startMatch} />
       )}
+{matchStarted && <Scoreboard />}
+
 
       <SceneRoot />
     </div>
