@@ -11,6 +11,7 @@ export default function CricsheetLoader({ onMatchSelected }) {
     setMatches([]);
 
     try {
+      console.log("Fetching ZIP:", url);
       const res = await fetch(url);
       const blob = await res.blob();
 
@@ -26,14 +27,16 @@ export default function CricsheetLoader({ onMatchSelected }) {
         const json = JSON.parse(text);
 
         const info = json.info || {};
+        const title = `${info.teams?.join(" vs ")} — ${info.dates?.[0]}`;
 
         matchList.push({
           filename,
           json,
-          title: `${info.teams?.join(" vs ")} — ${info.dates?.[0]}`,
+          title,
         });
       }
 
+      console.log("Loaded matches:", matchList.length);
       setMatches(matchList);
     } catch (err) {
       console.error("Error loading Cricsheet ZIP:", err);
@@ -44,11 +47,11 @@ export default function CricsheetLoader({ onMatchSelected }) {
 
   return (
     <div style={{ color: "white", marginBottom: 20 }}>
-      <h2>Load Cricsheet Matches</h2>
+      <h2>Select Match</h2>
 
       <button
         onClick={() =>
-          loadZip("https://cricsheet.org/downloads/ipl_json.zip")
+          loadZip("https://cric-broadcast-backed.onrender.com/cricsheet/ipl_json.zip")
         }
         style={{ padding: 10, marginRight: 10 }}
       >
@@ -57,7 +60,7 @@ export default function CricsheetLoader({ onMatchSelected }) {
 
       <button
         onClick={() =>
-          loadZip("https://cricsheet.org/downloads/t20s_json.zip")
+          loadZip("https://cric-broadcast-backed.onrender.com/cricsheet/t20s_json.zip")
         }
         style={{ padding: 10, marginRight: 10 }}
       >
@@ -66,7 +69,7 @@ export default function CricsheetLoader({ onMatchSelected }) {
 
       <button
         onClick={() =>
-          loadZip("https://cricsheet.org/downloads/odis_json.zip")
+          loadZip("https://cric-broadcast-backed.onrender.com/cricsheet/odis_json.zip")
         }
         style={{ padding: 10, marginRight: 10 }}
       >
