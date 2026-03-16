@@ -1,8 +1,7 @@
-
 import React, { useState, useCallback } from "react";
 import { useMatchEvents } from "./useMatchEvents";
 
-export default function SceneRoot() {
+export default function SceneRoot({ matchId }) {
   const [lastBall, setLastBall] = useState(null);
 
   const handleBall = useCallback((rawEvent) => {
@@ -10,13 +9,6 @@ export default function SceneRoot() {
 
     if (!rawEvent || rawEvent.type !== "ball" || !rawEvent.event) return;
 
-    // In your backend, `event` IS the delivery object:
-    // {
-    //   batter: "...",
-    //   bowler: "...",
-    //   runs: { total: 1, ... },
-    //   ...
-    // }
     const delivery = rawEvent.event;
 
     if (!delivery.runs || typeof delivery.runs.total !== "number") {
@@ -34,7 +26,7 @@ export default function SceneRoot() {
     setLastBall(parsed);
   }, []);
 
-  useMatchEvents(handleBall);
+  useMatchEvents(matchId, handleBall);
 
   return (
     <div style={{ color: "white", padding: 20 }}>
