@@ -98,7 +98,7 @@ async def websocket_match(websocket: WebSocket, match_id: str):
 
 
 # -------------------------------------------------
-# 3. Parse match into inning-aware events
+# 3. Parse match into inning-aware events (supports old + new Cricsheet formats)
 # -------------------------------------------------
 def load_match_events_from_data(data: dict):
     """
@@ -110,6 +110,10 @@ def load_match_events_from_data(data: dict):
       "ball": <int>,
       "delivery": { ... }  # inner delivery object
     }
+
+    Supports:
+    - New format: deliveries = [ { "12.3": { ... } }, ... ]
+    - Old format: deliveries = [ { "batter": "...", "bowler": "...", ... }, ... ]
     """
     print("LOAD: Parsing match JSON")
     events = []
@@ -119,22 +123,37 @@ def load_match_events_from_data(data: dict):
         team_name = inning.get("team", f"Team {inning_index}")
 
         for over in inning.get("overs", []):
-            for delivery in over.get("deliveries", []):
-                # delivery is like: { "12.3": { ... } } in normal cases
-                ball_key = list(delivery.keys())[0]
+            deliveries = over.get("deliveries", [])
+            for idx, delivery in enumerate(deliveries):
 
-                # Guard: skip malformed keys that don't look like "over.ball"
-                if "." not in ball_key:
-                    print(f"LOAD: Skipping malformed ball key: {ball_key}")
-                    continue
+                # CASE 1: New Cricsheet format → { "12.3": { ... } }
+                if isinstance(delivery, dict) and len(delivery.keys()) == 1:
+                    ball_key = list(delivery.keys())[0]
 
-                try:
-                    over_num_str, ball_num_str = ball_key.split(".", 1)
-                    over_num = int(over_num_str)
-                    ball_num = int(ball_num_str)
-                except ValueError:
-                    print(f"LOAD: Failed to parse ball key: {ball_key}")
-                    continue
+                    if "." in ball_key:
+                        over_str, ball_str = ball_key.split(".", 1)
+                        try:
+                            over_num = int(over_str)
+                            ball_num = int(ball_str)
+                        except ValueError:
+                            print(f"LOAD: Bad ball key: {ball_key}")
+                            continue
+
+                        events.append(
+                            {
+                                "inning": inning_index,
+                                "team": team_name,
+                                "over": over_num,
+                                "ball": ball_num,
+                                "delivery": delivery[ball_key],
+                            }
+                        )
+                        continue
+
+                # CASE 2: Old Cricsheet format → direct delivery object
+                # deliveries = [ { "batter": "...", "bowler": "...", ... }, ... ]
+                over_num = over.get("over", 0)
+                ball_num = idx + 1  # 1..6 in order
 
                 events.append(
                     {
@@ -142,7 +161,7 @@ def load_match_events_from_data(data: dict):
                         "team": team_name,
                         "over": over_num,
                         "ball": ball_num,
-                        "delivery": delivery[ball_key],
+                        "delivery": delivery,
                     }
                 )
 
