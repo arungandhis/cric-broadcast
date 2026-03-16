@@ -272,6 +272,8 @@ export default function Scoreboard({ matchId }) {
                 <td align="center">{s.fours}</td>
                 <td align="center">{s.sixes}</td>
                 <td align="center">{sr}</td>
+
+                {/* FIXED: ALWAYS FORMAT DISMISSAL */}
                 <td align="center">
                   {s.out ? formatDismissal(s.dismissal) : "not out"}
                 </td>
