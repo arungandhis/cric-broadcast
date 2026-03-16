@@ -19,10 +19,14 @@ export default function CricsheetLoader({ onMatchSelected }) {
 
       const matchList = [];
 
-      for (const filename of Object.keys(zip.files)) {
-        if (!filename.endsWith(".json")) continue;
+      // Get all JSON files inside the ZIP
+      const files = Object.values(zip.files).filter((f) =>
+        f.name.endsWith(".json")
+      );
 
-        const file = zip.files[filename];
+      console.log("Found JSON files:", files.length);
+
+      for (const file of files) {
         const text = await file.async("string");
         const json = JSON.parse(text);
 
@@ -30,10 +34,13 @@ export default function CricsheetLoader({ onMatchSelected }) {
         const title = `${info.teams?.join(" vs ")} — ${info.dates?.[0]}`;
 
         matchList.push({
-          filename,
+          filename: file.name,
           json,
           title,
         });
+
+        // Yield to UI to avoid freezing
+        await new Promise((r) => setTimeout(r, 0));
       }
 
       console.log("Loaded matches:", matchList.length);
@@ -51,7 +58,9 @@ export default function CricsheetLoader({ onMatchSelected }) {
 
       <button
         onClick={() =>
-          loadZip("https://cric-broadcast-backed.onrender.com/cricsheet/ipl_json.zip")
+          loadZip(
+            "https://cric-broadcast-backed.onrender.com/cricsheet/ipl_json.zip"
+          )
         }
         style={{ padding: 10, marginRight: 10 }}
       >
@@ -60,7 +69,9 @@ export default function CricsheetLoader({ onMatchSelected }) {
 
       <button
         onClick={() =>
-          loadZip("https://cric-broadcast-backed.onrender.com/cricsheet/t20s_json.zip")
+          loadZip(
+            "https://cric-broadcast-backed.onrender.com/cricsheet/t20s_json.zip"
+          )
         }
         style={{ padding: 10, marginRight: 10 }}
       >
@@ -69,7 +80,9 @@ export default function CricsheetLoader({ onMatchSelected }) {
 
       <button
         onClick={() =>
-          loadZip("https://cric-broadcast-backed.onrender.com/cricsheet/odis_json.zip")
+          loadZip(
+            "https://cric-broadcast-backed.onrender.com/cricsheet/odis_json.zip"
+          )
         }
         style={{ padding: 10, marginRight: 10 }}
       >
