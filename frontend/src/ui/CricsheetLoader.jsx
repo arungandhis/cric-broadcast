@@ -2,56 +2,77 @@ import React, { useState } from "react";
 import JSZip from "jszip";
 
 export default function CricsheetLoader({ onMatchSelected }) {
+  const [year, setYear] = useState("");
   const [matches, setMatches] = useState([]);
-  const [selectedMatch, setSelectedMatch] = useState(null);
-  const [selectedYear, setSelectedYear] = useState("all");
+  const [selectedMatch, setSelectedMatch] = useState("");
+
+  const YEARS = Array.from({ length: 20 }, (_, i) => 2024 - i); // 2024 → 2005
 
   const loadZip = async (zipName) => {
+    if (!year) {
+      alert("Please select a year first");
+      return;
+    }
+
     const url = `https://cric-broadcast-backed.onrender.com/cricsheet/${zipName}`;
     const res = await fetch(url);
     const blob = await res.blob();
 
     const zip = await JSZip.loadAsync(blob);
-    const allMatches = [];
+    const list = [];
 
     for (const filename of Object.keys(zip.files)) {
       if (!filename.endsWith(".json")) continue;
+
+      // Extract year from filename: "12345-2021-xyz.json"
+      const match = filename.match(/-(\d{4})-/);
+      const fileYear = match ? match[1] : null;
+
+      if (fileYear !== String(year)) continue;
 
       const file = zip.files[filename];
       const text = await file.async("string");
       const json = JSON.parse(text);
 
-      // Extract year from filename: "12345-2021-xyz.json"
-      const yearMatch = filename.match(/-(\d{4})-/);
-      const year = yearMatch ? yearMatch[1] : "unknown";
+      // Build a user-friendly title
+      const info = json.info || {};
+      const teams = info.teams ? info.teams.join(" vs ") : "Unknown Teams";
+      const venue = info.venue || "Unknown Venue";
+      const date = info.dates ? info.dates[0] : "Unknown Date";
 
-      allMatches.push({
+      list.push({
         filename,
-        year,
+        title: `${teams} – ${venue} – ${date}`,
         data: json,
+        date,
       });
     }
 
-    // Sort newest → oldest
-    allMatches.sort((a, b) => Number(b.year) - Number(a.year));
+    // Sort newest → oldest by date
+    list.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    setMatches(allMatches);
-    setSelectedMatch(null);
+    setMatches(list);
+    setSelectedMatch("");
   };
-
-  const filteredMatches =
-    selectedYear === "all"
-      ? matches
-      : matches.filter((m) => m.year === selectedYear);
-
-  const uniqueYears = [
-    "all",
-    ...Array.from(new Set(matches.map((m) => m.year))).sort((a, b) => b - a),
-  ];
 
   return (
     <div style={{ marginTop: 20 }}>
       <h2>Select Match</h2>
+
+      {/* YEAR FIRST */}
+      <label style={{ marginRight: 10 }}>Year:</label>
+      <select
+        value={year}
+        onChange={(e) => setYear(e.target.value)}
+        style={{ marginBottom: 20 }}
+      >
+        <option value="">-- Select Year --</option>
+        {YEARS.map((y) => (
+          <option key={y} value={y}>
+            {y}
+          </option>
+        ))}
+      </select>
 
       <div style={{ marginBottom: 10 }}>
         <button onClick={() => loadZip("ipl_json.zip")}>Load IPL</button>
@@ -61,35 +82,18 @@ export default function CricsheetLoader({ onMatchSelected }) {
 
       {matches.length > 0 && (
         <>
-          <label style={{ marginRight: 10 }}>Year:</label>
           <select
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(e.target.value)}
-            style={{ marginBottom: 10 }}
-          >
-            {uniqueYears.map((year) => (
-              <option key={year} value={year}>
-                {year === "all" ? "All Years" : year}
-              </option>
-            ))}
-          </select>
-
-          <br />
-
-          <select
-            value={selectedMatch || ""}
+            value={selectedMatch}
             onChange={(e) => setSelectedMatch(e.target.value)}
-            style={{ marginTop: 10 }}
+            style={{ marginTop: 10, width: "100%" }}
           >
             <option value="">-- Select Match --</option>
-            {filteredMatches.map((m) => (
+            {matches.map((m) => (
               <option key={m.filename} value={m.filename}>
-                {m.filename}
+                {m.title}
               </option>
             ))}
           </select>
-
-          <br />
 
           <button
             disabled={!selectedMatch}
