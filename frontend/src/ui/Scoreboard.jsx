@@ -18,8 +18,16 @@ export default function Scoreboard({ matchId }) {
       over: 0,
       ball: 0,
       batters: {}, // name -> { runs, balls, fours, sixes, out }
-      bowlers: {}, // name -> { balls, runs, wickets }
+      bowlers: {}, // name -> { balls, runs, wickets, wides, noballs }
       fow: [],     // [{ score, wicket, player, overStr }]
+      extras: {
+        wides: 0,
+        noballs: 0,
+        legbyes: 0,
+        byes: 0,
+        penalty: 0,
+        total: 0,
+      },
     },
     2: {
       team: "",
@@ -30,6 +38,14 @@ export default function Scoreboard({ matchId }) {
       batters: {},
       bowlers: {},
       fow: [],
+      extras: {
+        wides: 0,
+        noballs: 0,
+        legbyes: 0,
+        byes: 0,
+        penalty: 0,
+        total: 0,
+      },
     },
   });
 
@@ -60,6 +76,21 @@ export default function Scoreboard({ matchId }) {
         const runsObj = delivery.runs || {};
         const totalRuns = runsObj.total || 0;
         const batterRuns = runsObj.batter || 0;
+
+        // Extras
+        const extrasObj = delivery.extras || {};
+        const wides = extrasObj.wides || 0;
+        const noballs = extrasObj.noballs || 0;
+        const legbyes = extrasObj.legbyes || 0;
+        const byes = extrasObj.byes || 0;
+        const penalty = extrasObj.penalty || 0;
+
+        curr.extras.wides += wides;
+        curr.extras.noballs += noballs;
+        curr.extras.legbyes += legbyes;
+        curr.extras.byes += byes;
+        curr.extras.penalty += penalty;
+        curr.extras.total += wides + noballs + legbyes + byes + penalty;
 
         // Update team score
         const newRuns = curr.runs + totalRuns;
@@ -121,6 +152,8 @@ export default function Scoreboard({ matchId }) {
             balls: 0,
             runs: 0,
             wickets: 0,
+            wides: 0,
+            noballs: 0,
           };
 
           const newBowler = { ...prevBowler };
@@ -130,6 +163,10 @@ export default function Scoreboard({ matchId }) {
           if (delivery.wickets && delivery.wickets.length > 0) {
             newBowler.wickets += delivery.wickets.length;
           }
+
+          // wides and no-balls count against bowler
+          newBowler.wides += wides;
+          newBowler.noballs += noballs;
 
           curr.bowlers = {
             ...curr.bowlers,
@@ -239,6 +276,8 @@ export default function Scoreboard({ matchId }) {
             <th>O</th>
             <th>R</th>
             <th>W</th>
+            <th>Wd</th>
+            <th>Nb</th>
             <th>Econ</th>
           </tr>
         </thead>
@@ -256,6 +295,8 @@ export default function Scoreboard({ matchId }) {
                 </td>
                 <td align="center">{s.runs}</td>
                 <td align="center">{s.wickets}</td>
+                <td align="center">{s.wides || 0}</td>
+                <td align="center">{s.noballs || 0}</td>
                 <td align="center">{econ}</td>
               </tr>
             );
@@ -276,6 +317,17 @@ export default function Scoreboard({ matchId }) {
             {idx < fow.length - 1 ? ", " : ""}
           </span>
         ))}
+      </div>
+    );
+  };
+
+  const renderExtrasLine = (inn) => {
+    if (!inn.extras) return null;
+    const e = inn.extras;
+    return (
+      <div style={{ fontSize: 14, marginTop: 5 }}>
+        Extras: {e.total} (w {e.wides}, nb {e.noballs}, lb {e.legbyes}, b{" "}
+        {e.byes}, p {e.penalty})
       </div>
     );
   };
@@ -301,6 +353,7 @@ export default function Scoreboard({ matchId }) {
             {inn1.runs}/{inn1.wickets} ({formatOvers(inn1.over, inn1.ball)}){" "}
             <span style={{ fontSize: 14, opacity: 0.8 }}>RR: {inn1RR}</span>
           </div>
+          {renderExtrasLine(inn1)}
           {renderBattersTable(inn1.batters)}
           {renderBowlersTable(inn1.bowlers)}
           {renderFOW(inn1.fow)}
@@ -321,6 +374,7 @@ export default function Scoreboard({ matchId }) {
               </>
             )}
           </div>
+          {renderExtrasLine(inn2)}
           {renderBattersTable(inn2.batters)}
           {renderBowlersTable(inn2.bowlers)}
           {renderFOW(inn2.fow)}
