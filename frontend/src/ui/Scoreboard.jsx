@@ -46,6 +46,13 @@ function formatDismissal(d) {
 }
 
 export default function Scoreboard({ matchId }) {
+  const [matchInfo, setMatchInfo] = useState({
+    teamA: "",
+    teamB: "",
+    tossWinner: "",
+    tossDecision: "",
+  });
+
   const [innings, setInnings] = useState({
     1: {
       team: "",
@@ -89,8 +96,22 @@ export default function Scoreboard({ matchId }) {
   const [target, setTarget] = useState(null);
   const [maxOvers, setMaxOvers] = useState(null);
 
+  const handleMeta = useCallback((meta) => {
+    setMatchInfo({
+      teamA: meta.teamA,
+      teamB: meta.teamB,
+      tossWinner: meta.tossWinner,
+      tossDecision: meta.tossDecision,
+    });
+  }, []);
+
   const handleBall = useCallback(
     (rawEvent) => {
+      if (rawEvent.type === "meta") {
+        handleMeta(rawEvent);
+        return;
+      }
+
       if (!rawEvent || rawEvent.type !== "ball" || !rawEvent.event) return;
 
       const inn = rawEvent.inning;
@@ -162,7 +183,6 @@ export default function Scoreboard({ matchId }) {
               if (w.player_out === batterName) {
                 newBatter.out = true;
 
-                // Normalize fielder names to strings
                 const normalizedFielders = (w.fielders || []).map((f) => {
                   if (typeof f === "string") return f;
                   if (typeof f === "object") {
@@ -232,7 +252,7 @@ export default function Scoreboard({ matchId }) {
         });
       }
     },
-    [target, maxOvers]
+    [handleMeta, target, maxOvers]
   );
 
   useMatchEvents(matchId, handleBall);
@@ -378,6 +398,19 @@ export default function Scoreboard({ matchId }) {
         fontFamily: "sans-serif",
       }}
     >
+      {/* MATCH METADATA */}
+      {matchInfo.teamA && matchInfo.teamB && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 22, fontWeight: "bold" }}>
+            {matchInfo.teamA} vs {matchInfo.teamB}
+          </div>
+          <div style={{ fontSize: 14, opacity: 0.8 }}>
+            Toss: {matchInfo.tossWinner} won the toss and chose to{" "}
+            {matchInfo.tossDecision}
+          </div>
+        </div>
+      )}
+
       <h2>Scoreboard</h2>
 
       {inn1.team && (
