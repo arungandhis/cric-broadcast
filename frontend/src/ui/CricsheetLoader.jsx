@@ -2,114 +2,102 @@ import React, { useState } from "react";
 import JSZip from "jszip";
 
 export default function CricsheetLoader({ onMatchSelected }) {
-  const [loading, setLoading] = useState(false);
   const [matches, setMatches] = useState([]);
-  const [selected, setSelected] = useState(null);
+  const [selectedMatch, setSelectedMatch] = useState(null);
+  const [selectedYear, setSelectedYear] = useState("all");
 
-  const loadZip = async (url) => {
-    setLoading(true);
-    setMatches([]);
+  const loadZip = async (zipName) => {
+    const url = `https://cric-broadcast-backed.onrender.com/cricsheet/${zipName}`;
+    const res = await fetch(url);
+    const blob = await res.blob();
 
-    try {
-      console.log("Fetching ZIP:", url);
-      const res = await fetch(url);
-      const blob = await res.blob();
+    const zip = await JSZip.loadAsync(blob);
+    const allMatches = [];
 
-      const zip = await JSZip.loadAsync(blob);
+    for (const filename of Object.keys(zip.files)) {
+      if (!filename.endsWith(".json")) continue;
 
-      const matchList = [];
+      const file = zip.files[filename];
+      const text = await file.async("string");
+      const json = JSON.parse(text);
 
-      // Get all JSON files inside the ZIP
-      const files = Object.values(zip.files).filter((f) =>
-        f.name.endsWith(".json")
-      );
+      // Extract year from filename: "12345-2021-xyz.json"
+      const yearMatch = filename.match(/-(\d{4})-/);
+      const year = yearMatch ? yearMatch[1] : "unknown";
 
-      console.log("Found JSON files:", files.length);
-
-      for (const file of files) {
-        const text = await file.async("string");
-        const json = JSON.parse(text);
-
-        const info = json.info || {};
-        const title = `${info.teams?.join(" vs ")} — ${info.dates?.[0]}`;
-
-        matchList.push({
-          filename: file.name,
-          json,
-          title,
-        });
-
-        // Yield to UI to avoid freezing
-        await new Promise((r) => setTimeout(r, 0));
-      }
-
-      console.log("Loaded matches:", matchList.length);
-      setMatches(matchList);
-    } catch (err) {
-      console.error("Error loading Cricsheet ZIP:", err);
+      allMatches.push({
+        filename,
+        year,
+        data: json,
+      });
     }
 
-    setLoading(false);
+    // Sort newest → oldest
+    allMatches.sort((a, b) => Number(b.year) - Number(a.year));
+
+    setMatches(allMatches);
+    setSelectedMatch(null);
   };
 
+  const filteredMatches =
+    selectedYear === "all"
+      ? matches
+      : matches.filter((m) => m.year === selectedYear);
+
+  const uniqueYears = [
+    "all",
+    ...Array.from(new Set(matches.map((m) => m.year))).sort((a, b) => b - a),
+  ];
+
   return (
-    <div style={{ color: "white", marginBottom: 20 }}>
+    <div style={{ marginTop: 20 }}>
       <h2>Select Match</h2>
 
-      <button
-        onClick={() =>
-          loadZip(
-            "https://cric-broadcast-backed.onrender.com/cricsheet/ipl_json.zip"
-          )
-        }
-        style={{ padding: 10, marginRight: 10 }}
-      >
-        Load IPL
-      </button>
+      <div style={{ marginBottom: 10 }}>
+        <button onClick={() => loadZip("ipl_json.zip")}>Load IPL</button>
+        <button onClick={() => loadZip("t20s_json.zip")}>Load T20I</button>
+        <button onClick={() => loadZip("odis_json.zip")}>Load ODI</button>
+      </div>
 
-      <button
-        onClick={() =>
-          loadZip(
-            "https://cric-broadcast-backed.onrender.com/cricsheet/t20s_json.zip"
-          )
-        }
-        style={{ padding: 10, marginRight: 10 }}
-      >
-        Load T20I
-      </button>
-
-      <button
-        onClick={() =>
-          loadZip(
-            "https://cric-broadcast-backed.onrender.com/cricsheet/odis_json.zip"
-          )
-        }
-        style={{ padding: 10, marginRight: 10 }}
-      >
-        Load ODI
-      </button>
-
-      {loading && <p>Loading matches…</p>}
-
-      {!loading && matches.length > 0 && (
+      {matches.length > 0 && (
         <>
+          <label style={{ marginRight: 10 }}>Year:</label>
           <select
-            value={selected || ""}
-            onChange={(e) => setSelected(e.target.value)}
-            style={{ marginTop: 20, width: "300px" }}
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(e.target.value)}
+            style={{ marginBottom: 10 }}
           >
-            <option value="">-- Select Match --</option>
-            {matches.map((m, i) => (
-              <option key={i} value={i}>
-                {m.title}
+            {uniqueYears.map((year) => (
+              <option key={year} value={year}>
+                {year === "all" ? "All Years" : year}
               </option>
             ))}
           </select>
 
+          <br />
+
+          <select
+            value={selectedMatch || ""}
+            onChange={(e) => setSelectedMatch(e.target.value)}
+            style={{ marginTop: 10 }}
+          >
+            <option value="">-- Select Match --</option>
+            {filteredMatches.map((m) => (
+              <option key={m.filename} value={m.filename}>
+                {m.filename}
+              </option>
+            ))}
+          </select>
+
+          <br />
+
           <button
-            disabled={selected === null}
-            onClick={() => onMatchSelected(matches[selected].json)}
-            style={{ marginLeft: 10, padding: 10 }}
+            disabled={!selectedMatch}
+            onClick={() => {
+              const match = matches.find((m) => m.filename === selectedMatch);
+              onMatchSelected(match.data);
+            }}
+            style={{ marginTop: 10 }}
           >
             Start Match
           </button>
