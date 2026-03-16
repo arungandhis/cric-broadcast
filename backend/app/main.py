@@ -126,6 +126,9 @@ async def broadcast_events(file_path: Path):
         print("BROADCAST: No events found — nothing to send")
         return
 
+    # IMPORTANT: give frontend time to connect WebSocket
+    await asyncio.sleep(1)
+
     for idx, event in enumerate(events, start=1):
         message = {
             "type": "ball",
@@ -162,14 +165,7 @@ async def run_match(request: Request, background_tasks: BackgroundTasks):
         print("API: ERROR saving match file:", e)
         return {"status": "error", "detail": "Failed to save match"}
 
-    # ---------------------------------------------------------
-    # IMPORTANT FIX: Delay broadcast so WebSocket can connect
-    # ---------------------------------------------------------
-    async def delayed_start():
-        await asyncio.sleep(1)  # give frontend time to connect
-        await broadcast_events(temp_file)
-
-    background_tasks.add_task(delayed_start)
+    # Start broadcast in background (broadcast_events now handles its own delay)
+    background_tasks.add_task(broadcast_events, temp_file)
     print("API: Background task started")
-
     return {"status": "Match started"}
