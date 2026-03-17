@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCricsheetIndex } from "../hooks/useCricsheetIndex.jsx";
 
@@ -12,42 +12,54 @@ export default function CricsheetLoader() {
   const [matchTitles, setMatchTitles] = useState({}); // filePath → title
 
   if (loading) {
-    return <div style={{ padding: 20, color: "white" }}>Loading Cricsheet index…</div>;
+    return (
+      <div style={{ padding: 20, color: "white" }}>
+        Loading Cricsheet index…
+      </div>
+    );
   }
 
   if (!index) {
-    return <div style={{ padding: 20, color: "white" }}>Failed to load Cricsheet index.</div>;
+    return (
+      <div style={{ padding: 20, color: "white" }}>
+        Failed to load Cricsheet index.
+      </div>
+    );
   }
 
-  // Derive formats from file paths
-  const formats = useMemo(() => {
-    const set = new Set();
+  // index should be a flat array like ["t20s/0000821.json", "odis/0000815.json", ...]
+  console.log("Cricsheet index:", index);
+
+  const formatsSet = new Set();
+  if (Array.isArray(index)) {
     index.forEach((entry) => {
-      const [fmt] = entry.split("/");
-      if (fmt) set.add(fmt);
+      const [fmt] = String(entry).split("/");
+      if (fmt) formatsSet.add(fmt);
     });
-    return Array.from(set);
-  }, [index]);
+  }
+  const formats = Array.from(formatsSet);
 
-  // Matches for selected format
-  const matches = useMemo(() => {
-    if (!format) return [];
-    return index.filter((entry) => entry.startsWith(`${format}/`));
-  }, [index, format]);
+  const matches =
+    format && Array.isArray(index)
+      ? index.filter((entry) => String(entry).startsWith(`${format}/`))
+      : [];
 
-  // Load JSON + extract match title
   async function loadMatchJson(filePath) {
     try {
       const url = `${import.meta.env.VITE_BACKEND_URL}/cricsheet/${filePath}`;
+      console.log("Fetching match JSON from:", url);
       const res = await fetch(url);
       const json = await res.json();
 
       setMatchJson(json);
 
-      // Extract match title
       const info = json.info || {};
-      const teams = info.teams?.join(" vs ") || "Unknown Teams";
-      const date = info.dates?.[0] || "Unknown Date";
+      const teams = Array.isArray(info.teams)
+        ? info.teams.join(" vs ")
+        : "Unknown Teams";
+      const date = Array.isArray(info.dates) && info.dates.length > 0
+        ? info.dates[0]
+        : "Unknown Date";
       const venue = info.venue || "Unknown Venue";
 
       const title = `${teams} — ${date} — ${venue}`;
@@ -68,11 +80,14 @@ export default function CricsheetLoader() {
     const matchId = crypto.randomUUID();
 
     try {
-      await fetch(`${import.meta.env.VITE_BACKEND_URL}/run-match/${matchId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(matchJson),
-      });
+      await fetch(
+        `${import.meta.env.VITE_BACKEND_URL}/run-match/${matchId}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(matchJson),
+        }
+      );
 
       navigate(`/scoreboard?matchId=${matchId}`);
     } catch (err) {
@@ -120,7 +135,7 @@ export default function CricsheetLoader() {
             <option value="">Select Match</option>
             {matches.map((filePath) => (
               <option key={filePath} value={filePath}>
-                {matchTitles[filePath] || `Loading… (${filePath})`}
+                {matchTitles[filePath] || filePath}
               </option>
             ))}
           </select>
