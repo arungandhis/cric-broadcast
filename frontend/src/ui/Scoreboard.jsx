@@ -66,7 +66,14 @@ export default function Scoreboard({ matchId }) {
       batters: {},
       bowlers: {},
       fow: [],
-      extras: { wides: 0, noballs: 0, legbyes: 0, byes: 0, penalty: 0, total: 0 },
+      extras: {
+        wides: 0,
+        noballs: 0,
+        legbyes: 0,
+        byes: 0,
+        penalty: 0,
+        total: 0,
+      },
     },
     2: {
       team: "",
@@ -77,7 +84,14 @@ export default function Scoreboard({ matchId }) {
       batters: {},
       bowlers: {},
       fow: [],
-      extras: { wides: 0, noballs: 0, legbyes: 0, byes: 0, penalty: 0, total: 0 },
+      extras: {
+        wides: 0,
+        noballs: 0,
+        legbyes: 0,
+        byes: 0,
+        penalty: 0,
+        total: 0,
+      },
     },
   });
 
@@ -98,7 +112,6 @@ export default function Scoreboard({ matchId }) {
       tossDecision: meta.tossDecision,
     });
   }, []);
-
   const handleBall = useCallback(
     (rawEvent) => {
       if (rawEvent.type === "meta") {
@@ -365,7 +378,6 @@ export default function Scoreboard({ matchId }) {
       maxOvers,
     ]
   );
-
   useMatchEvents(matchId, handleBall);
 
   const inn1 = innings[1];
@@ -519,3 +531,72 @@ export default function Scoreboard({ matchId }) {
             {matchInfo.tossDecision}
           </div>
         </div>
+      )}
+
+      <h2>Scoreboard</h2>
+
+      {/* INNINGS 1 */}
+      {inn1.team && (
+        <div style={{ marginBottom: 20 }}>
+          <h3>Innings 1 — {inn1.team}</h3>
+          <div style={{ fontSize: 22 }}>
+            {inn1.runs}/{inn1.wickets} ({formatOvers(inn1.over, inn1.ball)}){" "}
+            <span style={{ fontSize: 14, opacity: 0.8 }}>RR: {inn1RR}</span>
+          </div>
+          {renderExtrasLine(inn1)}
+          {renderBattersTable(inn1.batters)}
+          {renderBowlersTable(inn1.bowlers)}
+          {renderFOW(inn1.fow)}
+        </div>
+      )}
+
+      {/* INNINGS 2 */}
+      {inn2.team && (
+        <div style={{ marginBottom: 20 }}>
+          <h3>Innings 2 — {inn2.team}</h3>
+          <div style={{ fontSize: 22 }}>
+            {inn2.runs}/{inn2.wickets} ({formatOvers(inn2.over, inn2.ball)}){" "}
+            <span style={{ fontSize: 14, opacity: 0.8 }}>RR: {inn2RR}</span>
+            {target && (
+              <>
+                {"  "} | Target: {target}
+                {"  "} | RRR: {rrr}
+              </>
+            )}
+          </div>
+          {renderExtrasLine(inn2)}
+          {renderBattersTable(inn2.batters)}
+          {renderBowlersTable(inn2.bowlers)}
+          {renderFOW(inn2.fow)}
+        </div>
+      )}
+
+      {/* LIVE COMMENTARY */}
+      <div
+        style={{
+          background: "#222",
+          padding: 12,
+          borderRadius: 8,
+          marginTop: 20,
+          maxHeight: 260,
+          overflowY: "auto",
+          fontSize: 14,
+        }}
+      >
+        <div style={{ fontWeight: "bold", marginBottom: 8 }}>
+          Live Commentary
+        </div>
+
+        {commentary.map((line, idx) => (
+          <div key={idx} style={{ marginBottom: 6 }}>
+            • {line}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ opacity: 0.7, marginTop: 10 }}>
+        Updating: Innings {currentInnings}
+      </div>
+    </div>
+  );
+}
