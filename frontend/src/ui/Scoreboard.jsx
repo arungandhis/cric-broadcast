@@ -66,6 +66,8 @@ export default function Scoreboard({ matchId }) {
       batters: {},
       bowlers: {},
       fow: [],
+      striker: null,
+      nonStriker: null,
       extras: {
         wides: 0,
         noballs: 0,
@@ -84,6 +86,8 @@ export default function Scoreboard({ matchId }) {
       batters: {},
       bowlers: {},
       fow: [],
+      striker: null,
+      nonStriker: null,
       extras: {
         wides: 0,
         noballs: 0,
@@ -123,8 +127,8 @@ export default function Scoreboard({ matchId }) {
 
       const inn = rawEvent.inning;
       const team = rawEvent.team;
-      const over = rawEvent.over;
-      const ball = rawEvent.ball;
+      const feedOver = rawEvent.over;
+      const feedBall = rawEvent.ball;
       const delivery = rawEvent.event;
 
       setCurrentInnings(inn);
@@ -133,14 +137,14 @@ export default function Scoreboard({ matchId }) {
       const totalRuns = runsObj.total || 0;
       const wicket = delivery.wickets?.length > 0;
 
-      // Compute RRR snapshot
-      const inn2 = innings[2];
-      const inn2OversFloat = oversToFloat(inn2.over, inn2.ball);
+      // Compute RRR snapshot from current state (innings[2])
+      const inn2State = innings[2];
+      const inn2OversFloat = oversToFloat(inn2State.over, inn2State.ball);
       let rrr = "-";
       let remainingRuns = null;
 
       if (target && maxOvers && inn2OversFloat < maxOvers) {
-        remainingRuns = target - inn2.runs;
+        remainingRuns = target - inn2State.runs;
         const remainingOvers = maxOvers - inn2OversFloat;
         if (remainingRuns > 0 && remainingOvers > 0) {
           rrr = (remainingRuns / remainingOvers).toFixed(2);
@@ -149,21 +153,21 @@ export default function Scoreboard({ matchId }) {
         }
       }
 
-      // Build over sequence
+      // Build over sequence for commentary (use feed over/ball)
       const thisBallSymbol =
         totalRuns === 0 ? (wicket ? "W" : 0) : totalRuns;
       const overBallsNow = [...ballsThisOver, thisBallSymbol];
 
       // Commentary lines
-      const ballLine = formatBallLine(over, ball, delivery);
+      const ballLine = formatBallLine(feedOver, feedBall, delivery);
       const hypeLine = generateIPLCommentary(
         {
           batter: delivery.batter,
           bowler: delivery.bowler,
           runs: totalRuns,
           wicket,
-          over,
-          ball,
+          over: feedOver,
+          ball: feedBall,
         },
         {}
       );
@@ -206,11 +210,14 @@ export default function Scoreboard({ matchId }) {
 
       setCommentary((prev) => [...lines, ...prev].slice(0, 100));
 
-      // Update over tracking
+      // Update over tracking for "This over so far"
       setBallsThisOver((prev) => {
         const updated = [...prev, thisBallSymbol];
-        if (ball === 5) {
-          const endSummary = `End of over ${over}: ${summarizeOver(updated)}`;
+        // End of over from feed perspective (ball index 5)
+        if (feedBall === 5) {
+          const endSummary = `End of over ${feedOver}: ${summarizeOver(
+            updated
+          )}`;
           setCommentary((prevC) => [endSummary, ...prevC]);
           return [];
         }
@@ -224,23 +231,27 @@ export default function Scoreboard({ matchId }) {
           : { runs: prev.runs + totalRuns, balls: prev.balls + 1 }
       );
 
-      // Update bowler spell
+      // Update bowler spell (legal balls only)
       setBowlerStats((prev) => {
+        const extrasObj = delivery.extras || {};
+        const isLegal = !extrasObj.wides && !extrasObj.noballs;
+
         const prevStats = prev[currentBowler] || {
           dots: 0,
           runsInOver: 0,
         };
         let newStats = {
-          dots: totalRuns === 0 ? prevStats.dots + 1 : 0,
+          dots: isLegal && totalRuns === 0 ? prevStats.dots + 1 : 0,
           runsInOver: prevStats.runsInOver + totalRuns,
         };
-        if (ball === 5) {
+        // Reset at end of over (feedBall === 5)
+        if (feedBall === 5) {
           newStats = { dots: 0, runsInOver: 0 };
         }
         return { ...prev, [currentBowler]: newStats };
       });
 
-      // SCORING LOGIC (unchanged)
+      // SCORING LOGIC (with legal-ball overs)
       setInnings((prev) => {
         const curr = { ...prev[inn] };
 
@@ -248,6 +259,7 @@ export default function Scoreboard({ matchId }) {
 
         const batterRuns = runsObj.batter || 0;
         const extrasObj = delivery.extras || {};
+        const isLegal = !extrasObj.wides && !extrasObj.noballs;
 
         curr.extras.wides += extrasObj.wides || 0;
         curr.extras.noballs += extrasObj.noballs || 0;
@@ -264,6 +276,9 @@ export default function Scoreboard({ matchId }) {
         const newRuns = curr.runs + totalRuns;
         let newWickets = curr.wickets;
 
+        // FOW over string based on our legal-ball counters
+        const fowOverStr = formatOvers(curr.over, curr.ball);
+
         if (delivery.wickets && delivery.wickets.length > 0) {
           delivery.wickets.forEach((w) => {
             newWickets += 1;
@@ -271,12 +286,15 @@ export default function Scoreboard({ matchId }) {
               score: newRuns,
               wicket: newWickets,
               player: w.player_out,
-              overStr: formatOvers(over, ball),
+              overStr: fowOverStr,
             });
           });
         }
 
         const batterName = delivery.batter;
+        const nonStrikerName =
+          delivery.non_striker || delivery.nonStriker || null;
+
         if (batterName) {
           const prevBatter = curr.batters[batterName] || {
             runs: 0,
@@ -288,8 +306,10 @@ export default function Scoreboard({ matchId }) {
           };
 
           const newBatter = { ...prevBatter };
+          if (isLegal) {
+            newBatter.balls += 1;
+          }
           newBatter.runs += batterRuns;
-          newBatter.balls += 1;
 
           if (batterRuns === 4) newBatter.fours += 1;
           if (batterRuns === 6) newBatter.sixes += 1;
@@ -336,7 +356,9 @@ export default function Scoreboard({ matchId }) {
           };
 
           const newBowler = { ...prevBowler };
-          newBowler.balls += 1;
+          if (isLegal) {
+            newBowler.balls += 1;
+          }
           newBowler.runs += totalRuns;
 
           if (delivery.wickets) {
@@ -349,14 +371,32 @@ export default function Scoreboard({ matchId }) {
           curr.bowlers[bowlerName] = newBowler;
         }
 
+        // Update innings runs/wickets
         curr.runs = newRuns;
         curr.wickets = newWickets;
-        curr.over = over;
-        curr.ball = ball;
+
+        // Legal-ball overs tracking (ignore wides/nb for ball count)
+        if (isLegal) {
+          if (curr.ball === 5) {
+            curr.over += 1;
+            curr.ball = 0;
+          } else {
+            curr.ball += 1;
+          }
+        }
+
+        // Track striker / non-striker from feed if available
+        if (batterName) {
+          curr.striker = batterName;
+        }
+        if (nonStrikerName) {
+          curr.nonStriker = nonStrikerName;
+        }
 
         return { ...prev, [inn]: curr };
       });
 
+      // Target + max overs once second innings starts
       if (inn === 2) {
         setInnings((prev) => {
           const inn1Local = prev[1];
@@ -402,7 +442,8 @@ export default function Scoreboard({ matchId }) {
     }
   }
 
-  const renderBattersTable = (batters) => {
+  const renderBattersTable = (inn) => {
+    const batters = inn.batters;
     const entries = Object.entries(batters);
     if (entries.length === 0) return null;
 
@@ -423,9 +464,18 @@ export default function Scoreboard({ matchId }) {
           {entries.map(([name, s]) => {
             const sr =
               s.balls > 0 ? ((s.runs * 100) / s.balls).toFixed(1) : "-";
+            const isStriker = name === inn.striker;
+            const isNonStriker = name === inn.nonStriker;
+
             return (
               <tr key={name}>
-                <td align="left">{name}</td>
+                <td align="left">
+                  {isStriker && <strong>*</strong>}
+                  {isNonStriker && !isStriker && (
+                    <span style={{ opacity: 0.7 }}>•</span>
+                  )}{" "}
+                  {name}
+                </td>
                 <td align="center">{s.runs}</td>
                 <td align="center">{s.balls}</td>
                 <td align="center">{s.fours}</td>
@@ -544,7 +594,7 @@ export default function Scoreboard({ matchId }) {
             <span style={{ fontSize: 14, opacity: 0.8 }}>RR: {inn1RR}</span>
           </div>
           {renderExtrasLine(inn1)}
-          {renderBattersTable(inn1.batters)}
+          {renderBattersTable(inn1)}
           {renderBowlersTable(inn1.bowlers)}
           {renderFOW(inn1.fow)}
         </div>
@@ -565,7 +615,7 @@ export default function Scoreboard({ matchId }) {
             )}
           </div>
           {renderExtrasLine(inn2)}
-          {renderBattersTable(inn2.batters)}
+          {renderBattersTable(inn2)}
           {renderBowlersTable(inn2.bowlers)}
           {renderFOW(inn2.fow)}
         </div>
