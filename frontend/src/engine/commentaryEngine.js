@@ -1,9 +1,8 @@
 // src/engine/commentaryEngine.js
 
 export function generateIPLCommentary(event, context = {}) {
-  const { batter, bowler, runs, wicket, over, ball } = event;
+  const { batter, bowler, runs, wicket } = event;
 
-  // WICKET
   if (wicket) {
     const wicketLines = [
       `GONE! ${bowler} strikes — huge moment!`,
@@ -14,7 +13,6 @@ export function generateIPLCommentary(event, context = {}) {
     return wicketLines[Math.floor(Math.random() * wicketLines.length)];
   }
 
-  // SIX
   if (runs === 6) {
     const sixLines = [
       `SIX! ${batter} launches it into the stands!`,
@@ -25,7 +23,6 @@ export function generateIPLCommentary(event, context = {}) {
     return sixLines[Math.floor(Math.random() * sixLines.length)];
   }
 
-  // FOUR
   if (runs === 4) {
     const fourLines = [
       `FOUR! ${batter} finds the gap beautifully!`,
@@ -36,7 +33,6 @@ export function generateIPLCommentary(event, context = {}) {
     return fourLines[Math.floor(Math.random() * fourLines.length)];
   }
 
-  // DOT BALL
   if (runs === 0) {
     const dotLines = [
       `Dot ball — pressure building.`,
@@ -47,7 +43,6 @@ export function generateIPLCommentary(event, context = {}) {
     return dotLines[Math.floor(Math.random() * dotLines.length)];
   }
 
-  // SINGLES / DOUBLES / TRIPLES
   const miscLines = [
     `${batter} rotates strike — ${runs} run.`,
     `Smart cricket — ${runs} taken.`,
