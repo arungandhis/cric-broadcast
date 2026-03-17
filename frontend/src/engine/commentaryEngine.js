@@ -27,26 +27,22 @@ export function generateIPLCommentary(ball, context = {}) {
 
   const hype = [];
 
-  // POWERPLAY HYPE
   if (over < 6) {
     hype.push("Powerplay fireworks!");
     hype.push("Field is up — danger everywhere!");
     hype.push("This is where momentum shifts!");
   }
 
-  // PRESSURE BUILDUP
   if (bowlerDots >= 2 && event === "dot") {
     hype.push(`${bowler} is turning the screws!`);
     hype.push(`Dot after dot — pressure sky high!`);
   }
 
-  // BATTER FORM
   if (batterRuns >= 20) {
     hype.push(`${batter} is looking dangerous!`);
     hype.push(`Everything off the middle from ${batter}!`);
   }
 
-  // OVER MOMENTUM
   const overRuns = ballsThisOver.reduce((a, b) => a + b, 0);
   if (overRuns >= 10) {
     hype.push(`This over is turning into a nightmare for ${bowler}!`);
