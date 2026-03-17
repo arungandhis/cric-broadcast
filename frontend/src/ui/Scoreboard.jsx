@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from "react";
 import { useMatchEvents } from "../three/useMatchEvents";
+import { generateIPLCommentary } from "../engine/commentaryEngine";   // ⭐ NEW
 
 function oversToFloat(over, ball) {
   return over + ball / 6;
@@ -52,6 +53,8 @@ export default function Scoreboard({ matchId }) {
     tossWinner: "",
     tossDecision: "",
   });
+
+  const [commentary, setCommentary] = useState([]);   // ⭐ NEW
 
   const [innings, setInnings] = useState({
     1: {
@@ -122,16 +125,34 @@ export default function Scoreboard({ matchId }) {
 
       setCurrentInnings(inn);
 
+      // ⭐ NEW — Generate IPL commentary BEFORE updating state
+      const runsObj = delivery.runs || {};
+      const totalRuns = runsObj.total || 0;
+      const extrasObj = delivery.extras || {};
+
+      const commentaryLine = generateIPLCommentary(
+        {
+          batter: delivery.batter,
+          bowler: delivery.bowler,
+          runs: totalRuns,
+          extras: extrasObj,
+          wicket: delivery.wickets?.length > 0,
+          over,
+          ball,
+        },
+        {}
+      );
+
+      setCommentary((prev) => [commentaryLine, ...prev].slice(0, 40));
+
+      // ⭐ ORIGINAL SCORING LOGIC (unchanged)
       setInnings((prev) => {
         const curr = { ...prev[inn] };
 
         if (!curr.team && team) curr.team = team;
 
-        const runsObj = delivery.runs || {};
-        const totalRuns = runsObj.total || 0;
         const batterRuns = runsObj.batter || 0;
 
-        const extrasObj = delivery.extras || {};
         const wides = extrasObj.wides || 0;
         const noballs = extrasObj.noballs || 0;
         const legbyes = extrasObj.legbyes || 0;
@@ -446,6 +467,28 @@ export default function Scoreboard({ matchId }) {
           {renderFOW(inn2.fow)}
         </div>
       )}
+
+      {/* ⭐ NEW — LIVE COMMENTARY */}
+      <div
+        style={{
+          background: "#222",
+          padding: 12,
+          borderRadius: 8,
+          marginTop: 20,
+          maxHeight: 260,
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ fontWeight: "bold", marginBottom: 8 }}>
+          Live Commentary
+        </div>
+
+        {commentary.map((line, idx) => (
+          <div key={idx} style={{ marginBottom: 6 }}>
+            • {line}
+          </div>
+        ))}
+      </div>
 
       <div style={{ opacity: 0.7, marginTop: 10 }}>
         Updating: Innings {currentInnings}
