@@ -7,9 +7,16 @@ export function useCricsheetIndex() {
   useEffect(() => {
     async function loadIndex() {
       try {
-        const res = await fetch(
-          `${import.meta.env.VITE_BACKEND_URL}/cricsheet/index.json`
-        );
+        const url = `${import.meta.env.VITE_BACKEND_URL}/cricsheet/index.json`;
+        console.log("Fetching index from:", url);
+
+        const res = await fetch(url);
+
+        if (!res.ok) {
+          console.error("Index fetch failed with status:", res.status);
+          throw new Error(`HTTP ${res.status}`);
+        }
+
         const json = await res.json();
         setIndex(json);
       } catch (err) {
