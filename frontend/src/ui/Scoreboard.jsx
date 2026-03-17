@@ -52,6 +52,7 @@ export default function Scoreboard({ matchId }) {
     teamB: "",
     tossWinner: "",
     tossDecision: "",
+    eventName: "",
   });
 
   const [commentary, setCommentary] = useState([]);
@@ -103,17 +104,18 @@ export default function Scoreboard({ matchId }) {
   const [target, setTarget] = useState(null);
   const [maxOvers, setMaxOvers] = useState(null);
 
-  // Commentary state
   const [ballsThisOver, setBallsThisOver] = useState([]);
   const [partnership, setPartnership] = useState({ runs: 0, balls: 0 });
   const [bowlerStats, setBowlerStats] = useState({});
 
+  // ⭐ UPDATED: metadata now includes event + teams + toss
   const handleMeta = useCallback((meta) => {
     setMatchInfo({
-      teamA: meta.teamA,
-      teamB: meta.teamB,
-      tossWinner: meta.tossWinner,
-      tossDecision: meta.tossDecision,
+      teamA: meta.teamA || meta.teams?.[0] || "",
+      teamB: meta.teamB || meta.teams?.[1] || "",
+      tossWinner: meta.toss?.winner || "",
+      tossDecision: meta.toss?.decision || "",
+      eventName: meta.event?.name || "",
     });
   }, []);
   const handleBall = useCallback(
@@ -137,7 +139,6 @@ export default function Scoreboard({ matchId }) {
       const totalRuns = runsObj.total || 0;
       const wicket = delivery.wickets?.length > 0;
 
-      // Compute RRR snapshot from current state (innings[2])
       const inn2State = innings[2];
       const inn2OversFloat = oversToFloat(inn2State.over, inn2State.ball);
       let rrr = "-";
@@ -153,12 +154,10 @@ export default function Scoreboard({ matchId }) {
         }
       }
 
-      // Build over sequence for commentary (use feed over/ball)
       const thisBallSymbol =
         totalRuns === 0 ? (wicket ? "W" : 0) : totalRuns;
       const overBallsNow = [...ballsThisOver, thisBallSymbol];
 
-      // Commentary lines
       const ballLine = formatBallLine(feedOver, feedBall, delivery);
       const hypeLine = generateIPLCommentary(
         {
@@ -210,10 +209,8 @@ export default function Scoreboard({ matchId }) {
 
       setCommentary((prev) => [...lines, ...prev].slice(0, 100));
 
-      // Update over tracking for "This over so far"
       setBallsThisOver((prev) => {
         const updated = [...prev, thisBallSymbol];
-        // End of over from feed perspective (ball index 5)
         if (feedBall === 5) {
           const endSummary = `End of over ${feedOver}: ${summarizeOver(
             updated
@@ -224,14 +221,12 @@ export default function Scoreboard({ matchId }) {
         return updated;
       });
 
-      // Update partnership
       setPartnership((prev) =>
         wicket
           ? { runs: 0, balls: 0 }
           : { runs: prev.runs + totalRuns, balls: prev.balls + 1 }
       );
 
-      // Update bowler spell (legal balls only)
       setBowlerStats((prev) => {
         const extrasObj = delivery.extras || {};
         const isLegal = !extrasObj.wides && !extrasObj.noballs;
@@ -244,14 +239,13 @@ export default function Scoreboard({ matchId }) {
           dots: isLegal && totalRuns === 0 ? prevStats.dots + 1 : 0,
           runsInOver: prevStats.runsInOver + totalRuns,
         };
-        // Reset at end of over (feedBall === 5)
         if (feedBall === 5) {
           newStats = { dots: 0, runsInOver: 0 };
         }
         return { ...prev, [currentBowler]: newStats };
       });
 
-      // SCORING LOGIC (with legal-ball overs)
+      // ⭐ SCORING LOGIC WITH LEGAL BALL OVERS
       setInnings((prev) => {
         const curr = { ...prev[inn] };
 
@@ -276,7 +270,6 @@ export default function Scoreboard({ matchId }) {
         const newRuns = curr.runs + totalRuns;
         let newWickets = curr.wickets;
 
-        // FOW over string based on our legal-ball counters
         const fowOverStr = formatOvers(curr.over, curr.ball);
 
         if (delivery.wickets && delivery.wickets.length > 0) {
@@ -306,9 +299,7 @@ export default function Scoreboard({ matchId }) {
           };
 
           const newBatter = { ...prevBatter };
-          if (isLegal) {
-            newBatter.balls += 1;
-          }
+          if (isLegal) newBatter.balls += 1;
           newBatter.runs += batterRuns;
 
           if (batterRuns === 4) newBatter.fours += 1;
@@ -356,9 +347,7 @@ export default function Scoreboard({ matchId }) {
           };
 
           const newBowler = { ...prevBowler };
-          if (isLegal) {
-            newBowler.balls += 1;
-          }
+          if (isLegal) newBowler.balls += 1;
           newBowler.runs += totalRuns;
 
           if (delivery.wickets) {
@@ -371,11 +360,9 @@ export default function Scoreboard({ matchId }) {
           curr.bowlers[bowlerName] = newBowler;
         }
 
-        // Update innings runs/wickets
         curr.runs = newRuns;
         curr.wickets = newWickets;
 
-        // Legal-ball overs tracking (ignore wides/nb for ball count)
         if (isLegal) {
           if (curr.ball === 5) {
             curr.over += 1;
@@ -385,18 +372,12 @@ export default function Scoreboard({ matchId }) {
           }
         }
 
-        // Track striker / non-striker from feed if available
-        if (batterName) {
-          curr.striker = batterName;
-        }
-        if (nonStrikerName) {
-          curr.nonStriker = nonStrikerName;
-        }
+        if (batterName) curr.striker = batterName;
+        if (nonStrikerName) curr.nonStriker = nonStrikerName;
 
         return { ...prev, [inn]: curr };
       });
 
-      // Target + max overs once second innings starts
       if (inn === 2) {
         setInnings((prev) => {
           const inn1Local = prev[1];
@@ -535,118 +516,4 @@ export default function Scoreboard({ matchId }) {
   };
 
   const renderFOW = (fow) => {
-    if (!fow || fow.length === 0) return null;
-    return (
-      <div style={{ marginTop: 10, fontSize: 13 }}>
-        <strong>Fall of wickets:</strong>{" "}
-        {fow.map((w, idx) => (
-          <span key={idx}>
-            {w.score}/{w.wicket} ({w.player}, {w.overStr})
-            {idx < fow.length - 1 ? ", " : ""}
-          </span>
-        ))}
-      </div>
-    );
-  };
-
-  const renderExtrasLine = (inn) => {
-    const e = inn.extras;
-    return (
-      <div style={{ fontSize: 14, marginTop: 5 }}>
-        Extras: {e.total} (w {e.wides}, nb {e.noballs}, lb {e.legbyes}, b{" "}
-        {e.byes}, p {e.penalty})
-      </div>
-    );
-  };
-
-  return (
-    <div
-      style={{
-        background: "#111",
-        padding: 20,
-        borderRadius: 10,
-        color: "white",
-        marginTop: 20,
-        fontFamily: "sans-serif",
-      }}
-    >
-      {/* MATCH METADATA */}
-      {matchInfo.teamA && matchInfo.teamB && (
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 22, fontWeight: "bold" }}>
-            {matchInfo.teamA} vs {matchInfo.teamB}
-          </div>
-          <div style={{ fontSize: 14, opacity: 0.8 }}>
-            Toss: {matchInfo.tossWinner} won the toss and chose to{" "}
-            {matchInfo.tossDecision}
-          </div>
-        </div>
-      )}
-
-      <h2>Scoreboard</h2>
-
-      {/* INNINGS 1 */}
-      {inn1.team && (
-        <div style={{ marginBottom: 20 }}>
-          <h3>Innings 1 — {inn1.team}</h3>
-          <div style={{ fontSize: 22 }}>
-            {inn1.runs}/{inn1.wickets} ({formatOvers(inn1.over, inn1.ball)}){" "}
-            <span style={{ fontSize: 14, opacity: 0.8 }}>RR: {inn1RR}</span>
-          </div>
-          {renderExtrasLine(inn1)}
-          {renderBattersTable(inn1)}
-          {renderBowlersTable(inn1.bowlers)}
-          {renderFOW(inn1.fow)}
-        </div>
-      )}
-
-      {/* INNINGS 2 */}
-      {inn2.team && (
-        <div style={{ marginBottom: 20 }}>
-          <h3>Innings 2 — {inn2.team}</h3>
-          <div style={{ fontSize: 22 }}>
-            {inn2.runs}/{inn2.wickets} ({formatOvers(inn2.over, inn2.ball)}){" "}
-            <span style={{ fontSize: 14, opacity: 0.8 }}>RR: {inn2RR}</span>
-            {target && (
-              <>
-                {"  "} | Target: {target}
-                {"  "} | RRR: {rrr}
-              </>
-            )}
-          </div>
-          {renderExtrasLine(inn2)}
-          {renderBattersTable(inn2)}
-          {renderBowlersTable(inn2.bowlers)}
-          {renderFOW(inn2.fow)}
-        </div>
-      )}
-
-      {/* LIVE COMMENTARY */}
-      <div
-        style={{
-          background: "#222",
-          padding: 12,
-          borderRadius: 8,
-          marginTop: 20,
-          maxHeight: 260,
-          overflowY: "auto",
-          fontSize: 14,
-        }}
-      >
-        <div style={{ fontWeight: "bold", marginBottom: 8 }}>
-          Live Commentary
-        </div>
-
-        {commentary.map((line, idx) => (
-          <div key={idx} style={{ marginBottom: 6 }}>
-            • {line}
-          </div>
-        ))}
-      </div>
-
-      <div style={{ opacity: 0.7, marginTop: 10 }}>
-        Updating: Innings {currentInnings}
-      </div>
-    </div>
-  );
-}
+    if (!fow || fow.length === 0) return null
