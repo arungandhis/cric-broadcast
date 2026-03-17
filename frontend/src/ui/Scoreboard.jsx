@@ -108,7 +108,7 @@ export default function Scoreboard({ matchId }) {
   const [partnership, setPartnership] = useState({ runs: 0, balls: 0 });
   const [bowlerStats, setBowlerStats] = useState({});
 
-  // ⭐ UPDATED: metadata now includes event + teams + toss
+  // ⭐ Metadata handler
   const handleMeta = useCallback((meta) => {
     setMatchInfo({
       teamA: meta.teamA || meta.teams?.[0] || "",
@@ -118,6 +118,8 @@ export default function Scoreboard({ matchId }) {
       eventName: meta.event?.name || "",
     });
   }, []);
+
+  // ⭐ Ball handler
   const handleBall = useCallback(
     (rawEvent) => {
       if (rawEvent.type === "meta") {
@@ -399,7 +401,164 @@ export default function Scoreboard({ matchId }) {
       maxOvers,
     ]
   );
-  useMatchEvents(matchId, handleBall);
+  const renderBattersTable = (inn) => {
+    const batters = inn.batters;
+    const entries = Object.entries(batters);
+    if (entries.length === 0) return null;
+
+    return (
+      <div
+        style={{
+          background: "#ffffff",
+          padding: 16,
+          borderRadius: 8,
+          marginTop: 16,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+        }}
+      >
+        <h3 style={{ margin: 0, marginBottom: 12 }}>Batting</h3>
+
+        <table style={{ width: "100%", fontSize: 14 }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid #eee" }}>
+              <th align="left">Batter</th>
+              <th>R</th>
+              <th>B</th>
+              <th>4s</th>
+              <th>6s</th>
+              <th>SR</th>
+              <th align="left">Dismissal</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {entries.map(([name, s]) => {
+              const sr =
+                s.balls > 0 ? ((s.runs * 100) / s.balls).toFixed(1) : "-";
+              const isStriker = name === inn.striker;
+              const isNonStriker = name === inn.nonStriker;
+
+              return (
+                <tr
+                  key={name}
+                  style={{
+                    borderBottom: "1px solid #f2f2f2",
+                    height: 32,
+                  }}
+                >
+                  <td align="left">
+                    {isStriker && <strong>*</strong>}
+                    {isNonStriker && !isStriker && (
+                      <span style={{ opacity: 0.6 }}>•</span>
+                    )}{" "}
+                    {name}
+                  </td>
+                  <td align="center">{s.runs}</td>
+                  <td align="center">{s.balls}</td>
+                  <td align="center">{s.fours}</td>
+                  <td align="center">{s.sixes}</td>
+                  <td align="center">{sr}</td>
+                  <td align="left">
+                    {s.out ? formatDismissal(s.dismissal) : "not out"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  const renderBowlersTable = (bowlers) => {
+    const entries = Object.entries(bowlers);
+    if (entries.length === 0) return null;
+
+    return (
+      <div
+        style={{
+          background: "#ffffff",
+          padding: 16,
+          borderRadius: 8,
+          marginTop: 16,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+        }}
+      >
+        <h3 style={{ margin: 0, marginBottom: 12 }}>Bowling</h3>
+
+        <table style={{ width: "100%", fontSize: 14 }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid #eee" }}>
+              <th align="left">Bowler</th>
+              <th>O</th>
+              <th>R</th>
+              <th>W</th>
+              <th>Wd</th>
+              <th>Nb</th>
+              <th>Econ</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {entries.map(([name, s]) => {
+              const overs = Math.floor(s.balls / 6);
+              const balls = s.balls % 6;
+              const econ =
+                s.balls > 0 ? ((s.runs * 6) / s.balls).toFixed(2) : "-";
+
+              return (
+                <tr
+                  key={name}
+                  style={{
+                    borderBottom: "1px solid #f2f2f2",
+                    height: 32,
+                  }}
+                >
+                  <td align="left">{name}</td>
+                  <td align="center">
+                    {overs}.{balls}
+                  </td>
+                  <td align="center">{s.runs}</td>
+                  <td align="center">{s.wickets}</td>
+                  <td align="center">{s.wides || 0}</td>
+                  <td align="center">{s.noballs || 0}</td>
+                  <td align="center">{econ}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  const renderFOW = (fow) => {
+    if (!fow || fow.length === 0) return null;
+
+    return (
+      <div
+        style={{
+          background: "#ffffff",
+          padding: 16,
+          borderRadius: 8,
+          marginTop: 16,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          fontSize: 14,
+        }}
+      >
+        <h3 style={{ margin: 0, marginBottom: 12 }}>Fall of Wickets</h3>
+
+        {fow.map((w, idx) => (
+          <div key={idx} style={{ marginBottom: 4 }}>
+            {w.score}/{w.wicket} — {w.player} ({w.overStr})
+          </div>
+        ))}
+      </div>
+    );
+  };
+  // ------------------------------------------------------------
+  // MAIN UI RENDER
+  // ------------------------------------------------------------
 
   const inn1 = innings[1];
   const inn2 = innings[2];
@@ -423,111 +582,123 @@ export default function Scoreboard({ matchId }) {
     }
   }
 
-  const renderBattersTable = (inn) => {
-    const batters = inn.batters;
-    const entries = Object.entries(batters);
-    if (entries.length === 0) return null;
-
-    return (
-      <table style={{ width: "100%", marginTop: 10, fontSize: 14 }}>
-        <thead>
-          <tr>
-            <th align="left">Batter</th>
-            <th>R</th>
-            <th>B</th>
-            <th>4s</th>
-            <th>6s</th>
-            <th>SR</th>
-            <th>Dismissal</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map(([name, s]) => {
-            const sr =
-              s.balls > 0 ? ((s.runs * 100) / s.balls).toFixed(1) : "-";
-            const isStriker = name === inn.striker;
-            const isNonStriker = name === inn.nonStriker;
-
-            return (
-              <tr key={name}>
-                <td align="left">
-                  {isStriker && <strong>*</strong>}
-                  {isNonStriker && !isStriker && (
-                    <span style={{ opacity: 0.7 }}>•</span>
-                  )}{" "}
-                  {name}
-                </td>
-                <td align="center">{s.runs}</td>
-                <td align="center">{s.balls}</td>
-                <td align="center">{s.fours}</td>
-                <td align="center">{s.sixes}</td>
-                <td align="center">{sr}</td>
-                <td align="center">
-                  {s.out ? formatDismissal(s.dismissal) : "not out"}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    );
-  };
-
-  const renderBowlersTable = (bowlers) => {
-    const entries = Object.entries(bowlers);
-    if (entries.length === 0) return null;
-
-    return (
-      <table style={{ width: "100%", marginTop: 10, fontSize: 14 }}>
-        <thead>
-          <tr>
-            <th align="left">Bowler</th>
-            <th>O</th>
-            <th>R</th>
-            <th>W</th>
-            <th>Wd</th>
-            <th>Nb</th>
-            <th>Econ</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map(([name, s]) => {
-            const overs = Math.floor(s.balls / 6);
-            const balls = s.balls % 6;
-            const econ =
-              s.balls > 0 ? ((s.runs * 6) / s.balls).toFixed(2) : "-";
-            return (
-              <tr key={name}>
-                <td align="left">{name}</td>
-                <td align="center">
-                  {overs}.{balls}
-                </td>
-                <td align="center">{s.runs}</td>
-                <td align="center">{s.wickets}</td>
-                <td align="center">{s.wides || 0}</td>
-                <td align="center">{s.noballs || 0}</td>
-                <td align="center">{econ}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    );
-  };
-
-  const renderFOW = (fow) => {
-  if (!fow || fow.length === 0) return null;
-
   return (
-    <div style={{ marginTop: 10, fontSize: 13 }}>
-      <strong>Fall of wickets:</strong>{" "}
-      {fow.map((w, idx) => (
-        <span key={idx}>
-          {w.score}/{w.wicket} ({w.player}, {w.overStr})
-          {idx < fow.length - 1 ? ", " : ""}
-        </span>
-      ))}
-    </div>
-  );
-};
+    <div
+      style={{
+        padding: 20,
+        maxWidth: 900,
+        margin: "0 auto",
+        fontFamily: "Inter, sans-serif",
+        background: "#f5f5f5",
+        minHeight: "100vh",
+      }}
+    >
+      {/* EVENT HEADER */}
+      <div
+        style={{
+          background: "#ffffff",
+          padding: 20,
+          borderRadius: 10,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          marginBottom: 20,
+        }}
+      >
+        <h2 style={{ margin: 0, marginBottom: 6 }}>
+          {matchInfo.eventName || "Match"}
+        </h2>
 
+        <div style={{ fontSize: 16, opacity: 0.8 }}>
+          {matchInfo.teamA} vs {matchInfo.teamB}
+        </div>
+
+        {matchInfo.tossWinner && (
+          <div style={{ marginTop: 6, fontSize: 14, opacity: 0.7 }}>
+            Toss: {matchInfo.tossWinner} won the toss and chose to{" "}
+            {matchInfo.tossDecision}
+          </div>
+        )}
+      </div>
+
+      {/* INNINGS 1 PANEL */}
+      <div
+        style={{
+          background: "#ffffff",
+          padding: 20,
+          borderRadius: 10,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          marginBottom: 20,
+        }}
+      >
+        <h2 style={{ margin: 0, marginBottom: 10 }}>
+          {inn1.team || "Team 1"} — {inn1.runs}/{inn1.wickets}{" "}
+          ({inn1.over}.{inn1.ball}) RR: {inn1RR}
+        </h2>
+
+        {renderBattersTable(inn1)}
+        {renderBowlersTable(inn1.bowlers)}
+        {renderFOW(inn1.fow)}
+      </div>
+
+      {/* INNINGS 2 PANEL */}
+      <div
+        style={{
+          background: "#ffffff",
+          padding: 20,
+          borderRadius: 10,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          marginBottom: 20,
+        }}
+      >
+        <h2 style={{ margin: 0, marginBottom: 10 }}>
+          {inn2.team || "Team 2"} — {inn2.runs}/{inn2.wickets}{" "}
+          ({inn2.over}.{inn2.ball}) RR: {inn2RR}
+        </h2>
+
+        {target && (
+          <div style={{ marginBottom: 10, fontSize: 15 }}>
+            Target: {target} | RRR: {rrr}
+          </div>
+        )}
+
+        {renderBattersTable(inn2)}
+        {renderBowlersTable(inn2.bowlers)}
+        {renderFOW(inn2.fow)}
+      </div>
+
+      {/* COMMENTARY PANEL */}
+      <div
+        style={{
+          background: "#ffffff",
+          padding: 20,
+          borderRadius: 10,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          marginBottom: 40,
+        }}
+      >
+        <h2 style={{ margin: 0, marginBottom: 12 }}>Commentary</h2>
+
+        <div
+          style={{
+            maxHeight: 400,
+            overflowY: "auto",
+            paddingRight: 10,
+          }}
+        >
+          {commentary.map((line, idx) => (
+            <div
+              key={idx}
+              style={{
+                marginBottom: 8,
+                paddingBottom: 8,
+                borderBottom: "1px solid #f0f0f0",
+                fontSize: 14,
+              }}
+            >
+              {line}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div> 
+  );
+}
