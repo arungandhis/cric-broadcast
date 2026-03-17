@@ -1,22 +1,13 @@
-import { useEffect, useState } from "react";
-
 export function useCricsheetIndex() {
   const [index, setIndex] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function loadIndex() {
+    async function load() {
       try {
-        const url = `${import.meta.env.VITE_BACKEND_URL}/cricsheet/index.json`;
-        console.log("Fetching index from:", url);
-
-        const res = await fetch(url);
-
-        if (!res.ok) {
-          console.error("Index fetch failed with status:", res.status);
-          throw new Error(`HTTP ${res.status}`);
-        }
-
+        const res = await fetch(
+          `${import.meta.env.VITE_BACKEND_URL}/cricsheet/index.json`
+        );
         const json = await res.json();
         setIndex(json);
       } catch (err) {
@@ -27,7 +18,7 @@ export function useCricsheetIndex() {
       }
     }
 
-    loadIndex();
+    load();
   }, []);
 
   return { index, loading };
