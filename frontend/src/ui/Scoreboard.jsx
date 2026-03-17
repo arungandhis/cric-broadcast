@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from "react";
 import { useMatchEvents } from "../three/useMatchEvents";
-import { generateIPLCommentary } from "../engine/commentaryEngine";   // ⭐ NEW
+import { generateIPLCommentary } from "../engine/commentaryEngine";
 
 function oversToFloat(over, ball) {
   return over + ball / 6;
@@ -18,32 +18,90 @@ function formatDismissal(d) {
       return d.fielders?.length
         ? `c ${d.fielders.join(", ")} b ${d.bowler}`
         : `c ? b ${d.bowler}`;
-
     case "bowled":
       return `b ${d.bowler}`;
-
     case "lbw":
       return `lbw b ${d.bowler}`;
-
     case "stumped":
       return d.fielders?.length
         ? `st ${d.fielders.join(", ")} b ${d.bowler}`
         : `st ? b ${d.bowler}`;
-
     case "run out":
       return d.fielders?.length
         ? `run out (${d.fielders.join(", ")})`
         : "run out";
-
     case "hit wicket":
       return `hit wicket b ${d.bowler}`;
-
     case "retired hurt":
       return "retired hurt";
-
     default:
       return d.kind;
   }
+}
+
+function formatBallLine(over, ball, delivery) {
+  const batter = delivery.batter;
+  const bowler = delivery.bowler;
+
+  const runsObj = delivery.runs || {};
+  const batterRuns = runsObj.batter || 0;
+  const totalRuns = runsObj.total || 0;
+
+  const extras = delivery.extras || {};
+  const wides = extras.wides || 0;
+  const noballs = extras.noballs || 0;
+
+  if (delivery.wickets?.length > 0) {
+    const w = delivery.wickets[0];
+    return `${over}.${ball} — WICKET! ${w.player_out} ${w.kind} b ${bowler}`;
+  }
+
+  if (wides > 0) return `${over}.${ball} — Wide ball from ${bowler}`;
+  if (noballs > 0) return `${over}.${ball} — No-ball from ${bowler}`;
+
+  if (totalRuns === 0)
+    return `${over}.${ball} — Dot ball. ${batter} defends.`;
+
+  if (batterRuns > 0)
+    return `${over}.${ball} — ${batter} scores ${totalRuns} run(s).`;
+
+  return `${over}.${ball} — ${totalRuns} run(s) added.`;
+}
+
+function summarizeOver(balls) {
+  if (balls.length === 0) return "";
+  return `This over so far: ${balls.join(", ")}`;
+}
+
+function partnershipLine(p) {
+  if (p.runs < 20) return null;
+  return `Partnership now ${p.runs} off ${p.balls} balls.`;
+}
+
+function pressureLine(rrr, remainingRuns) {
+  if (!rrr || rrr === "-" || rrr === "Achieved") return null;
+  const r = parseFloat(rrr);
+  if (Number.isNaN(r)) return null;
+  if (r >= 10) return `Pressure rising! Required rate at ${rrr}.`;
+  if (remainingRuns !== null && remainingRuns <= 12)
+    return `Just a couple of hits needed now!`;
+  return null;
+}
+
+function bowlerPressureLine(bowler, stats) {
+  const s = stats[bowler];
+  if (!s) return null;
+  if (s.dots >= 3) return `${bowler} building serious pressure with dot balls!`;
+  if (s.runsInOver >= 12) return `${bowler} under the pump this over!`;
+  return null;
+}
+
+function crowdReaction(runs, wicket) {
+  if (wicket) return "Crowd ERUPTS as the wicket falls!";
+  if (runs === 6) return "Crowd goes wild — that’s out of the stadium!";
+  if (runs === 4) return "Crowd loves that boundary!";
+  if (runs === 0) return "Crowd murmurs… dot ball pressure.";
+  return null;
 }
 
 export default function Scoreboard({ matchId }) {
@@ -54,7 +112,7 @@ export default function Scoreboard({ matchId }) {
     tossDecision: "",
   });
 
-  const [commentary, setCommentary] = useState([]);   // ⭐ NEW
+  const [commentary, setCommentary] = useState([]);
 
   const [innings, setInnings] = useState({
     1: {
@@ -99,6 +157,10 @@ export default function Scoreboard({ matchId }) {
   const [target, setTarget] = useState(null);
   const [maxOvers, setMaxOvers] = useState(null);
 
+  const [ballsThisOver, setBallsThisOver] = useState([]);
+  const [partnership, setPartnership] = useState({ runs: 0, balls: 0 });
+  const [bowlerStats, setBowlerStats] = useState({});
+
   const handleMeta = useCallback((meta) => {
     setMatchInfo({
       teamA: meta.teamA,
@@ -125,27 +187,127 @@ export default function Scoreboard({ matchId }) {
 
       setCurrentInnings(inn);
 
-      // ⭐ NEW — Generate IPL commentary BEFORE updating state
       const runsObj = delivery.runs || {};
       const totalRuns = runsObj.total || 0;
       const extrasObj = delivery.extras || {};
+      const wicket = delivery.wickets?.length > 0;
 
-      const commentaryLine = generateIPLCommentary(
+      // compute current RRR snapshot from existing state
+      const inn1 = innings[1];
+      const inn2 = innings[2];
+      const inn2OversFloat = oversToFloat(inn2.over, inn2.ball);
+      let rrr = "-";
+      let remainingRuns = null;
+      if (target && maxOvers && inn2OversFloat < maxOvers) {
+        remainingRuns = target - inn2.runs;
+        const remainingOvers = maxOvers - inn2OversFloat;
+        if (remainingRuns > 0 && remainingOvers > 0) {
+          rrr = (remainingRuns / remainingOvers).toFixed(2);
+        } else if (remainingRuns <= 0) {
+          rrr = "Achieved";
+        }
+      }
+
+      // build local over sequence for commentary
+      const thisBallSymbol =
+        totalRuns === 0 ? (wicket ? "W" : 0) : totalRuns;
+      const overBallsNow = [...ballsThisOver, thisBallSymbol];
+
+      // 1) factual line
+      const ballLine = formatBallLine(over, ball, delivery);
+
+      // 2) IPL hype
+      const hypeLine = generateIPLCommentary(
         {
           batter: delivery.batter,
           bowler: delivery.bowler,
           runs: totalRuns,
           extras: extrasObj,
-          wicket: delivery.wickets?.length > 0,
+          wicket,
           over,
           ball,
         },
         {}
       );
 
-      setCommentary((prev) => [commentaryLine, ...prev].slice(0, 40));
+      // 3) live over summary
+      const overSummary = summarizeOver(overBallsNow);
 
-      // ⭐ ORIGINAL SCORING LOGIC (unchanged)
+      // 4) partnership projection
+      const nextPartnership = {
+        runs: partnership.runs + totalRuns,
+        balls: partnership.balls + 1,
+      };
+      const pLine = partnershipLine(nextPartnership);
+
+      // 5) pressure commentary
+      const pressure = pressureLine(rrr, remainingRuns);
+
+      // 6) bowler pressure
+      const currentBowler = delivery.bowler;
+      const currentBowlerStats = bowlerStats[currentBowler] || {
+        dots: 0,
+        runsInOver: 0,
+      };
+      const nextBowlerStats = {
+        dots: totalRuns === 0 ? currentBowlerStats.dots + 1 : 0,
+        runsInOver: currentBowlerStats.runsInOver + totalRuns,
+      };
+      const bowlerPressure = bowlerPressureLine(currentBowler, {
+        ...bowlerStats,
+        [currentBowler]: nextBowlerStats,
+      });
+
+      // 7) crowd reaction
+      const crowd = crowdReaction(totalRuns, wicket);
+
+      const lines = [
+        hypeLine,
+        ballLine,
+        overSummary,
+        pLine,
+        pressure,
+        bowlerPressure,
+        crowd,
+      ].filter(Boolean);
+
+      setCommentary((prev) => [...lines, ...prev].slice(0, 100));
+
+      // update over tracking state
+      setBallsThisOver((prev) => {
+        const updated = [...prev, thisBallSymbol];
+        if (ball === 5) {
+          const endSummary = `End of over ${over}: ${summarizeOver(updated)}`;
+          setCommentary((prevC) => [endSummary, ...prevC]);
+          return [];
+        }
+        return updated;
+      });
+
+      // update partnership (reset on wicket)
+      setPartnership((prev) =>
+        wicket
+          ? { runs: 0, balls: 0 }
+          : { runs: prev.runs + totalRuns, balls: prev.balls + 1 }
+      );
+
+      // update bowler spell stats
+      setBowlerStats((prev) => {
+        const prevStats = prev[currentBowler] || {
+          dots: 0,
+          runsInOver: 0,
+        };
+        let newStats = {
+          dots: totalRuns === 0 ? prevStats.dots + 1 : 0,
+          runsInOver: prevStats.runsInOver + totalRuns,
+        };
+        if (ball === 5) {
+          newStats = { dots: 0, runsInOver: 0 };
+        }
+        return { ...prev, [currentBowler]: newStats };
+      });
+
+      // scoring logic (your original)
       setInnings((prev) => {
         const curr = { ...prev[inn] };
 
@@ -248,8 +410,8 @@ export default function Scoreboard({ matchId }) {
             newBowler.wickets += delivery.wickets.length;
           }
 
-          newBowler.wides += wides;
-          newBowler.noballs += noballs;
+          newBowler.wides += extrasObj.wides || 0;
+          newBowler.noballs += extrasObj.noballs || 0;
 
           curr.bowlers[bowlerName] = newBowler;
         }
@@ -264,16 +426,24 @@ export default function Scoreboard({ matchId }) {
 
       if (inn === 2) {
         setInnings((prev) => {
-          const inn1 = prev[1];
-          if (target == null && inn1.runs > 0) {
-            setTarget(inn1.runs + 1);
-            setMaxOvers(inn1.over + 1);
+          const inn1Local = prev[1];
+          if (target == null && inn1Local.runs > 0) {
+            setTarget(inn1Local.runs + 1);
+            setMaxOvers(inn1Local.over + 1);
           }
           return prev;
         });
       }
     },
-    [handleMeta, target, maxOvers]
+    [
+      handleMeta,
+      innings,
+      ballsThisOver,
+      partnership,
+      bowlerStats,
+      target,
+      maxOvers,
+    ]
   );
 
   useMatchEvents(matchId, handleBall);
@@ -329,7 +499,6 @@ export default function Scoreboard({ matchId }) {
                 <td align="center">{s.fours}</td>
                 <td align="center">{s.sixes}</td>
                 <td align="center">{sr}</td>
-
                 <td align="center">
                   {s.out ? formatDismissal(s.dismissal) : "not out"}
                 </td>
@@ -408,6 +577,9 @@ export default function Scoreboard({ matchId }) {
     );
   };
 
+  const inn1 = innings[1];
+  const inn2 = innings[2];
+
   return (
     <div
       style={{
@@ -419,7 +591,6 @@ export default function Scoreboard({ matchId }) {
         fontFamily: "sans-serif",
       }}
     >
-      {/* MATCH METADATA */}
       {matchInfo.teamA && matchInfo.teamB && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 22, fontWeight: "bold" }}>
@@ -468,7 +639,6 @@ export default function Scoreboard({ matchId }) {
         </div>
       )}
 
-      {/* ⭐ NEW — LIVE COMMENTARY */}
       <div
         style={{
           background: "#222",
@@ -477,12 +647,12 @@ export default function Scoreboard({ matchId }) {
           marginTop: 20,
           maxHeight: 260,
           overflowY: "auto",
+          fontSize: 14,
         }}
       >
         <div style={{ fontWeight: "bold", marginBottom: 8 }}>
           Live Commentary
         </div>
-
         {commentary.map((line, idx) => (
           <div key={idx} style={{ marginBottom: 6 }}>
             • {line}
