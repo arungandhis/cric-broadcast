@@ -167,7 +167,7 @@ async def broadcast_events(file_path: Path, match_id: str):
         return
 
     # -------------------------------------------------
-    # SEND METADATA FIRST (CRITICAL)
+    # SEND METADATA FIRST
     # -------------------------------------------------
     try:
         info = data.get("info", {})
@@ -248,3 +248,11 @@ async def run_match(match_id: str, request: Request, background_tasks: Backgroun
     background_tasks.add_task(broadcast_events, temp_file, match_id)
     print("API: Background task started for match", match_id)
     return {"status": "Match started", "match_id": match_id}
+
+
+# -------------------------------------------------
+# 6. DEBUG ENDPOINT TO CONFIRM DEPLOYMENT
+# -------------------------------------------------
+@app.get("/main-version")
+def main_version():
+    return {"version": "metadata-v4"}
