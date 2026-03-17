@@ -1,42 +1,53 @@
-import React, { useState } from "react";
-import SceneRoot from "./three/SceneRoot";
-import CricsheetLoader from "./ui/CricsheetLoader";
-import Scoreboard from "./ui/Scoreboard";
+import React from "react";
+import { BrowserRouter, Routes, Route, useSearchParams } from "react-router-dom";
 
-export default function App() {
-  const [matchStarted, setMatchStarted] = useState(false);
-  const [matchId, setMatchId] = useState(null);
+import CricsheetLoader from "./ui/CricsheetLoader.jsx";
+import Scoreboard from "./ui/Scoreboard.jsx";
+import SceneRoot from "./three/SceneRoot.jsx";
 
-  const startMatch = async (matchJson) => {
-    // Create a unique matchId for this session/tab
-    const id = crypto.randomUUID();
-    setMatchId(id);
-
-    console.log("Sending match JSON to backend for matchId:", id);
-
-    await fetch(
-      `https://cric-broadcast-backed.onrender.com/run-match/${id}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(matchJson),
-      }
-    );
-
-    setMatchStarted(true);
-  };
+// Wrapper so Scoreboard + SceneRoot both receive matchId from URL
+function ScoreboardPage() {
+  const [params] = useSearchParams();
+  const matchId = params.get("matchId");
 
   return (
     <div style={{ background: "black", color: "white", padding: 20 }}>
       <h1>Cricket Broadcast Engine</h1>
 
-      {!matchStarted && (
-        <CricsheetLoader onMatchSelected={startMatch} />
-      )}
-
-      {matchStarted && <Scoreboard matchId={matchId} />}
-
+      <Scoreboard matchId={matchId} />
       <SceneRoot matchId={matchId} />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        {/* Home → Match Selector */}
+        <Route
+          path="/"
+          element={
+            <div style={{ background: "black", color: "white", padding: 20 }}>
+              <h1>Cricket Broadcast Engine</h1>
+              <CricsheetLoader />
+            </div>
+          }
+        />
+
+        {/* Scoreboard Page */}
+        <Route path="/scoreboard" element={<ScoreboardPage />} />
+
+        {/* Fallback */}
+        <Route
+          path="*"
+          element={
+            <div style={{ padding: 20, color: "white" }}>
+              Page not found.
+            </div>
+          }
+        />
+      </Routes>
+    </BrowserRouter>
   );
 }
