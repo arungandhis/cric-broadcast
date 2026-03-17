@@ -50,6 +50,26 @@ async def proxy_cricsheet(zip_name: str):
 
 
 # -------------------------------------------------
+# 1B. NEW — Serve cricsheet index.json
+# -------------------------------------------------
+@app.get("/cricsheet/index.json")
+async def get_cricsheet_index():
+    index_file = DATA_DIR / "index.json"
+
+    if not index_file.exists():
+        print("ERROR: index.json not found in backend/data/")
+        return {"error": "index.json not found"}
+
+    try:
+        with open(index_file, "r") as f:
+            data = json.load(f)
+        return data
+    except Exception as e:
+        print("ERROR reading index.json:", e)
+        return {"error": "failed to read index.json"}
+
+
+# -------------------------------------------------
 # 2. WebSocket manager
 # -------------------------------------------------
 class ConnectionManager:
