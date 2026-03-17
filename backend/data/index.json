@@ -1,1 +1,30 @@
- 
+ {
+  "t20s": [
+    "t20s/000001.json",
+    "t20s/000002.json",
+    "t20s/000003.json",
+    "t20s/000004.json",
+    "t20s/000005.json"
+  ],
+  "odis": [
+    "odis/000001.json",
+    "odis/000002.json",
+    "odis/000003.json",
+    "odis/000004.json",
+    "odis/000005.json"
+  ],
+  "tests": [
+    "tests/000001.json",
+    "tests/000002.json",
+    "tests/000003.json",
+    "tests/000004.json",
+    "tests/000005.json"
+  ],
+  "ipl": [
+    "ipl/335982.json",
+    "ipl/335983.json",
+    "ipl/335984.json",
+    "ipl/335985.json",
+    "ipl/335986.json"
+  ]
+}
