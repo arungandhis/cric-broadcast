@@ -9,25 +9,17 @@ export default function CricsheetLoader() {
   const [format, setFormat] = useState("");
   const [selectedMatch, setSelectedMatch] = useState("");
   const [matchJson, setMatchJson] = useState(null);
+  const [matchTitles, setMatchTitles] = useState({}); // filePath → title
 
   if (loading) {
-    return (
-      <div style={{ padding: 20, color: "white" }}>
-        Loading Cricsheet index…
-      </div>
-    );
+    return <div style={{ padding: 20, color: "white" }}>Loading Cricsheet index…</div>;
   }
 
   if (!index) {
-    return (
-      <div style={{ padding: 20, color: "white" }}>
-        Failed to load Cricsheet index.
-      </div>
-    );
+    return <div style={{ padding: 20, color: "white" }}>Failed to load Cricsheet index.</div>;
   }
 
-  // index is a flat array like ["t20s/0000821.json", "odis/0000815.json", ...]
-  // Derive formats from the first segment before "/"
+  // Derive formats from file paths
   const formats = useMemo(() => {
     const set = new Set();
     index.forEach((entry) => {
@@ -37,18 +29,33 @@ export default function CricsheetLoader() {
     return Array.from(set);
   }, [index]);
 
-  // Matches for the selected format
+  // Matches for selected format
   const matches = useMemo(() => {
     if (!format) return [];
     return index.filter((entry) => entry.startsWith(`${format}/`));
   }, [index, format]);
 
+  // Load JSON + extract match title
   async function loadMatchJson(filePath) {
     try {
       const url = `${import.meta.env.VITE_BACKEND_URL}/cricsheet/${filePath}`;
       const res = await fetch(url);
       const json = await res.json();
+
       setMatchJson(json);
+
+      // Extract match title
+      const info = json.info || {};
+      const teams = info.teams?.join(" vs ") || "Unknown Teams";
+      const date = info.dates?.[0] || "Unknown Date";
+      const venue = info.venue || "Unknown Venue";
+
+      const title = `${teams} — ${date} — ${venue}`;
+
+      setMatchTitles((prev) => ({
+        ...prev,
+        [filePath]: title,
+      }));
     } catch (err) {
       console.error("Failed to load match JSON:", err);
       setMatchJson(null);
@@ -61,14 +68,11 @@ export default function CricsheetLoader() {
     const matchId = crypto.randomUUID();
 
     try {
-      await fetch(
-        `${import.meta.env.VITE_BACKEND_URL}/run-match/${matchId}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(matchJson),
-        }
-      );
+      await fetch(`${import.meta.env.VITE_BACKEND_URL}/run-match/${matchId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(matchJson),
+      });
 
       navigate(`/scoreboard?matchId=${matchId}`);
     } catch (err) {
@@ -80,7 +84,7 @@ export default function CricsheetLoader() {
     <div style={{ padding: 20, color: "white" }}>
       <h2>Cricket Broadcast Engine</h2>
 
-      {/* FORMAT SELECTOR (t20s / odis / tests) */}
+      {/* FORMAT SELECTOR */}
       <div style={{ marginTop: 20 }}>
         <label>Format: </label>
         <select
@@ -116,7 +120,7 @@ export default function CricsheetLoader() {
             <option value="">Select Match</option>
             {matches.map((filePath) => (
               <option key={filePath} value={filePath}>
-                {filePath}
+                {matchTitles[filePath] || `Loading… (${filePath})`}
               </option>
             ))}
           </select>
