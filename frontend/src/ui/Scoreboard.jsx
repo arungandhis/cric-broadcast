@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+I'm import React, { useState, useCallback } from "react";
 import { useMatchEvents } from "../three/useMatchEvents";
 import { generateIPLCommentary } from "../engine/commentaryEngine";
 import {
@@ -516,4 +516,18 @@ export default function Scoreboard({ matchId }) {
   };
 
   const renderFOW = (fow) => {
-    if (!fow || fow.length === 0) return null
+  if (!fow || fow.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 10, fontSize: 13 }}>
+      <strong>Fall of wickets:</strong>{" "}
+      {fow.map((w, idx) => (
+        <span key={idx}>
+          {w.score}/{w.wicket} ({w.player}, {w.overStr})
+          {idx < fow.length - 1 ? ", " : ""}
+        </span>
+      ))}
+    </div>
+  );
+};
+
