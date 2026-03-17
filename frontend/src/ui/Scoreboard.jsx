@@ -44,7 +44,6 @@ function formatBallLine(over, ball, delivery) {
   const bowler = delivery.bowler;
 
   const runsObj = delivery.runs || {};
-  const batterRuns = runsObj.batter || 0;
   const totalRuns = runsObj.total || 0;
 
   const extras = delivery.extras || {};
@@ -62,10 +61,7 @@ function formatBallLine(over, ball, delivery) {
   if (totalRuns === 0)
     return `${over}.${ball} — Dot ball. ${batter} defends.`;
 
-  if (batterRuns > 0)
-    return `${over}.${ball} — ${batter} scores ${totalRuns} run(s).`;
-
-  return `${over}.${ball} — ${totalRuns} run(s) added.`;
+  return `${over}.${ball} — ${batter} scores ${totalRuns} run(s).`;
 }
 
 function summarizeOver(balls) {
@@ -192,12 +188,12 @@ export default function Scoreboard({ matchId }) {
       const extrasObj = delivery.extras || {};
       const wicket = delivery.wickets?.length > 0;
 
-      // compute current RRR snapshot from existing state
-      const inn1 = innings[1];
+      // Compute RRR snapshot
       const inn2 = innings[2];
       const inn2OversFloat = oversToFloat(inn2.over, inn2.ball);
       let rrr = "-";
       let remainingRuns = null;
+
       if (target && maxOvers && inn2OversFloat < maxOvers) {
         remainingRuns = target - inn2.runs;
         const remainingOvers = maxOvers - inn2OversFloat;
@@ -208,15 +204,13 @@ export default function Scoreboard({ matchId }) {
         }
       }
 
-      // build local over sequence for commentary
+      // Build over sequence
       const thisBallSymbol =
         totalRuns === 0 ? (wicket ? "W" : 0) : totalRuns;
       const overBallsNow = [...ballsThisOver, thisBallSymbol];
 
-      // 1) factual line
+      // Commentary lines
       const ballLine = formatBallLine(over, ball, delivery);
-
-      // 2) IPL hype
       const hypeLine = generateIPLCommentary(
         {
           batter: delivery.batter,
@@ -230,20 +224,16 @@ export default function Scoreboard({ matchId }) {
         {}
       );
 
-      // 3) live over summary
       const overSummary = summarizeOver(overBallsNow);
 
-      // 4) partnership projection
       const nextPartnership = {
         runs: partnership.runs + totalRuns,
         balls: partnership.balls + 1,
       };
       const pLine = partnershipLine(nextPartnership);
 
-      // 5) pressure commentary
       const pressure = pressureLine(rrr, remainingRuns);
 
-      // 6) bowler pressure
       const currentBowler = delivery.bowler;
       const currentBowlerStats = bowlerStats[currentBowler] || {
         dots: 0,
@@ -258,7 +248,6 @@ export default function Scoreboard({ matchId }) {
         [currentBowler]: nextBowlerStats,
       });
 
-      // 7) crowd reaction
       const crowd = crowdReaction(totalRuns, wicket);
 
       const lines = [
@@ -273,7 +262,7 @@ export default function Scoreboard({ matchId }) {
 
       setCommentary((prev) => [...lines, ...prev].slice(0, 100));
 
-      // update over tracking state
+      // Update over tracking
       setBallsThisOver((prev) => {
         const updated = [...prev, thisBallSymbol];
         if (ball === 5) {
@@ -284,14 +273,14 @@ export default function Scoreboard({ matchId }) {
         return updated;
       });
 
-      // update partnership (reset on wicket)
+      // Update partnership
       setPartnership((prev) =>
         wicket
           ? { runs: 0, balls: 0 }
           : { runs: prev.runs + totalRuns, balls: prev.balls + 1 }
       );
 
-      // update bowler spell stats
+      // Update bowler spell
       setBowlerStats((prev) => {
         const prevStats = prev[currentBowler] || {
           dots: 0,
@@ -307,7 +296,7 @@ export default function Scoreboard({ matchId }) {
         return { ...prev, [currentBowler]: newStats };
       });
 
-      // scoring logic (your original)
+      // SCORING LOGIC (unchanged)
       setInnings((prev) => {
         const curr = { ...prev[inn] };
 
@@ -537,132 +526,4 @@ export default function Scoreboard({ matchId }) {
               <tr key={name}>
                 <td align="left">{name}</td>
                 <td align="center">
-                  {overs}.{balls}
-                </td>
-                <td align="center">{s.runs}</td>
-                <td align="center">{s.wickets}</td>
-                <td align="center">{s.wides || 0}</td>
-                <td align="center">{s.noballs || 0}</td>
-                <td align="center">{econ}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    );
-  };
-
-  const renderFOW = (fow) => {
-    if (!fow || fow.length === 0) return null;
-    return (
-      <div style={{ marginTop: 10, fontSize: 13 }}>
-        <strong>Fall of wickets:</strong>{" "}
-        {fow.map((w, idx) => (
-          <span key={idx}>
-            {w.score}/{w.wicket} ({w.player}, {w.overStr})
-            {idx < fow.length - 1 ? ", " : ""}
-          </span>
-        ))}
-      </div>
-    );
-  };
-
-  const renderExtrasLine = (inn) => {
-    const e = inn.extras;
-    return (
-      <div style={{ fontSize: 14, marginTop: 5 }}>
-        Extras: {e.total} (w {e.wides}, nb {e.noballs}, lb {e.legbyes}, b{" "}
-        {e.byes}, p {e.penalty})
-      </div>
-    );
-  };
-
-  const inn1 = innings[1];
-  const inn2 = innings[2];
-
-  return (
-    <div
-      style={{
-        background: "#111",
-        padding: 20,
-        borderRadius: 10,
-        color: "white",
-        marginTop: 20,
-        fontFamily: "sans-serif",
-      }}
-    >
-      {matchInfo.teamA && matchInfo.teamB && (
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 22, fontWeight: "bold" }}>
-            {matchInfo.teamA} vs {matchInfo.teamB}
-          </div>
-          <div style={{ fontSize: 14, opacity: 0.8 }}>
-            Toss: {matchInfo.tossWinner} won the toss and chose to{" "}
-            {matchInfo.tossDecision}
-          </div>
-        </div>
-      )}
-
-      <h2>Scoreboard</h2>
-
-      {inn1.team && (
-        <div style={{ marginBottom: 20 }}>
-          <h3>Innings 1 — {inn1.team}</h3>
-          <div style={{ fontSize: 22 }}>
-            {inn1.runs}/{inn1.wickets} ({formatOvers(inn1.over, inn1.ball)}){" "}
-            <span style={{ fontSize: 14, opacity: 0.8 }}>RR: {inn1RR}</span>
-          </div>
-          {renderExtrasLine(inn1)}
-          {renderBattersTable(inn1.batters)}
-          {renderBowlersTable(inn1.bowlers)}
-          {renderFOW(inn1.fow)}
-        </div>
-      )}
-
-      {inn2.team && (
-        <div style={{ marginBottom: 20 }}>
-          <h3>Innings 2 — {inn2.team}</h3>
-          <div style={{ fontSize: 22 }}>
-            {inn2.runs}/{inn2.wickets} ({formatOvers(inn2.over, inn2.ball)}){" "}
-            <span style={{ fontSize: 14, opacity: 0.8 }}>RR: {inn2RR}</span>
-            {target && (
-              <>
-                {"  "} | Target: {target}
-                {"  "} | RRR: {rrr}
-              </>
-            )}
-          </div>
-          {renderExtrasLine(inn2)}
-          {renderBattersTable(inn2.batters)}
-          {renderBowlersTable(inn2.bowlers)}
-          {renderFOW(inn2.fow)}
-        </div>
-      )}
-
-      <div
-        style={{
-          background: "#222",
-          padding: 12,
-          borderRadius: 8,
-          marginTop: 20,
-          maxHeight: 260,
-          overflowY: "auto",
-          fontSize: 14,
-        }}
-      >
-        <div style={{ fontWeight: "bold", marginBottom: 8 }}>
-          Live Commentary
-        </div>
-        {commentary.map((line, idx) => (
-          <div key={idx} style={{ marginBottom: 6 }}>
-            • {line}
-          </div>
-        ))}
-      </div>
-
-      <div style={{ opacity: 0.7, marginTop: 10 }}>
-        Updating: Innings {currentInnings}
-      </div>
-    </div>
-  );
-}
+                  {
