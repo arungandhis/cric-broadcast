@@ -32,25 +32,7 @@ CRICSHEET_BASE = "https://cricsheet.org/downloads"
 
 
 # -------------------------------------------------
-# 1. Cricsheet proxy
-# -------------------------------------------------
-@app.get("/cricsheet/{zip_name}")
-async def proxy_cricsheet(zip_name: str):
-    url = f"{CRICSHEET_BASE}/{zip_name}"
-    print("Proxying Cricsheet ZIP:", url)
-
-    async with httpx.AsyncClient() as client:
-        r = await client.get(url)
-        r.raise_for_status()
-
-    return StreamingResponse(
-        iter([r.content]),
-        media_type="application/zip",
-    )
-
-
-# -------------------------------------------------
-# 1B. NEW — Serve cricsheet index.json
+# 1. Serve cricsheet index.json (MUST COME FIRST)
 # -------------------------------------------------
 @app.get("/cricsheet/index.json")
 async def get_cricsheet_index():
@@ -70,7 +52,25 @@ async def get_cricsheet_index():
 
 
 # -------------------------------------------------
-# 2. WebSocket manager
+# 2. Cricsheet ZIP proxy (MUST COME AFTER index.json)
+# -------------------------------------------------
+@app.get("/cricsheet/{zip_name}")
+async def proxy_cricsheet(zip_name: str):
+    url = f"{CRICSHEET_BASE}/{zip_name}"
+    print("Proxying Cricsheet ZIP:", url)
+
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url)
+        r.raise_for_status()
+
+    return StreamingResponse(
+        iter([r.content]),
+        media_type="application/zip",
+    )
+
+
+# -------------------------------------------------
+# 3. WebSocket manager
 # -------------------------------------------------
 class ConnectionManager:
     def __init__(self):
@@ -117,7 +117,7 @@ async def websocket_match(websocket: WebSocket, match_id: str):
 
 
 # -------------------------------------------------
-# 3. Parse match into inning-aware events
+# 4. Parse match into inning-aware events
 # -------------------------------------------------
 def load_match_events_from_data(data: dict):
     print("LOAD: Parsing match JSON")
@@ -174,7 +174,7 @@ def load_match_events_from_data(data: dict):
 
 
 # -------------------------------------------------
-# 4. Broadcast events (with metadata first)
+# 5. Broadcast events (with metadata first)
 # -------------------------------------------------
 async def broadcast_events(file_path: Path, match_id: str):
     print("BROADCAST: Starting broadcast_events() with file:", file_path, "match_id:", match_id)
@@ -244,7 +244,7 @@ async def broadcast_events(file_path: Path, match_id: str):
 
 
 # -------------------------------------------------
-# 5. /run-match/{match_id}
+# 6. /run-match/{match_id}
 # -------------------------------------------------
 @app.post("/run-match/{match_id}")
 async def run_match(match_id: str, request: Request, background_tasks: BackgroundTasks):
@@ -271,7 +271,7 @@ async def run_match(match_id: str, request: Request, background_tasks: Backgroun
 
 
 # -------------------------------------------------
-# 6. DEBUG ENDPOINT TO CONFIRM DEPLOYMENT
+# 7. DEBUG ENDPOINT TO CONFIRM DEPLOYMENT
 # -------------------------------------------------
 @app.get("/main-version")
 def main_version():
