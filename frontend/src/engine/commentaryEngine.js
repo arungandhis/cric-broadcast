@@ -1,115 +1,58 @@
-// frontend/src/engine/commentaryEngine.js
+// src/engine/commentaryEngine.js
 
-export function generateIPLCommentary(ball, context = {}) {
-  const {
-    batter,
-    bowler,
-    runs,
-    extras = {},
-    wicket,
-    over,
-    ball: ballNumber,
-  } = ball;
+export function generateIPLCommentary(event, context = {}) {
+  const { batter, bowler, runs, wicket, over, ball } = event;
 
-  const { ballsThisOver = [], batterRuns = 0, bowlerDots = 0 } = context;
-
-  const event = wicket
-    ? "wicket"
-    : runs === 6
-    ? "six"
-    : runs === 4
-    ? "four"
-    : runs > 0
-    ? "runs"
-    : extras.wides || extras.noballs
-    ? "extra"
-    : "dot";
-
-  const hype = [];
-
-  if (over < 6) {
-    hype.push("Powerplay fireworks!");
-    hype.push("Field is up — danger everywhere!");
-    hype.push("This is where momentum shifts!");
+  // WICKET
+  if (wicket) {
+    const wicketLines = [
+      `GONE! ${bowler} strikes — huge moment!`,
+      `Cleaned up! ${batter} has to walk back.`,
+      `Breakthrough! ${bowler} gets the big wicket of ${batter}.`,
+      `What a delivery! ${batter} is dismissed.`,
+    ];
+    return wicketLines[Math.floor(Math.random() * wicketLines.length)];
   }
 
-  if (bowlerDots >= 2 && event === "dot") {
-    hype.push(`${bowler} is turning the screws!`);
-    hype.push(`Dot after dot — pressure sky high!`);
+  // SIX
+  if (runs === 6) {
+    const sixLines = [
+      `SIX! ${batter} launches it into the stands!`,
+      `That's massive! ${batter} sends it out of the park!`,
+      `What a hit! ${batter} muscles a huge six!`,
+      `Clean strike! ${batter} with a towering six!`,
+    ];
+    return sixLines[Math.floor(Math.random() * sixLines.length)];
   }
 
-  if (batterRuns >= 20) {
-    hype.push(`${batter} is looking dangerous!`);
-    hype.push(`Everything off the middle from ${batter}!`);
+  // FOUR
+  if (runs === 4) {
+    const fourLines = [
+      `FOUR! ${batter} finds the gap beautifully!`,
+      `Cracking shot! ${batter} drives it for four.`,
+      `Lovely timing — ${batter} gets a boundary.`,
+      `That's a bullet! ${batter} smashes a four.`,
+    ];
+    return fourLines[Math.floor(Math.random() * fourLines.length)];
   }
 
-  const overRuns = ballsThisOver.reduce((a, b) => a + b, 0);
-  if (overRuns >= 10) {
-    hype.push(`This over is turning into a nightmare for ${bowler}!`);
-    hype.push(`Runs flowing like a river!`);
+  // DOT BALL
+  if (runs === 0) {
+    const dotLines = [
+      `Dot ball — pressure building.`,
+      `${bowler} keeps it tight. Dot.`,
+      `Good delivery from ${bowler}. No run.`,
+      `${batter} defends. Dot ball.`,
+    ];
+    return dotLines[Math.floor(Math.random() * dotLines.length)];
   }
 
-  switch (event) {
-    case "dot":
-      return pick([
-        `${bowler} nails the length — ${batter} can’t get it away!`,
-        `Dot ball! ${bowler} roaring in the Powerplay!`,
-        `${batter} tries to break free but ${bowler} keeps it tight!`,
-        ...hype,
-      ]);
-
-    case "runs":
-      return pick([
-        `${batter} works it away — they’ll steal ${runs}!`,
-        `Soft hands, smart cricket — ${runs} more.`,
-        `${runs} to the total, keeping the scoreboard ticking.`,
-        ...hype,
-      ]);
-
-    case "four":
-      return pick([
-        `FOUR! ${batter} threads the needle — pure class!`,
-        `Cracked away! ${batter} sends it racing to the rope!`,
-        `That’s a tracer bullet from ${batter}!`,
-        ...hype,
-      ]);
-
-    case "six":
-      return pick([
-        `SIX! ${batter} sends it into the night sky!`,
-        `That’s MASSIVE! ${batter} absolutely launches it!`,
-        `Out of here! ${batter} with a monster hit!`,
-        ...hype,
-      ]);
-
-    case "extra":
-      if (extras.wides)
-        return pick([
-          `Wide! ${bowler} losing control under pressure!`,
-          `Loose delivery — umpire stretches the arms.`,
-          ...hype,
-        ]);
-
-      if (extras.noballs)
-        return pick([
-          `No-ball! ${bowler} oversteps — FREE HIT coming!`,
-          `Huge moment — ${bowler} gifts a no-ball!`,
-          ...hype,
-        ]);
-
-      return pick([`Extras leaking — this could hurt.`, ...hype]);
-
-    case "wicket":
-      return pick([
-        `GONE! ${bowler} breaks through — ${batter} has to walk!`,
-        `EDGED AND TAKEN! ${bowler} roars in celebration!`,
-        `TIMBER! ${batter} is cleaned up — what a moment!`,
-        `Crowd ERUPTS! ${bowler} delivers a game‑changer!`,
-        ...hype,
-      ]);
-  }
-}
-
-function pick(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
+  // SINGLES / DOUBLES / TRIPLES
+  const miscLines = [
+    `${batter} rotates strike — ${runs} run.`,
+    `Smart cricket — ${runs} taken.`,
+    `${runs} run added to the total.`,
+    `${batter} nudges it for ${runs}.`,
+  ];
+  return miscLines[Math.floor(Math.random() * miscLines.length)];
 }
