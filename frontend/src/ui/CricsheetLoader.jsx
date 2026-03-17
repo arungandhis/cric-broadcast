@@ -1,135 +1,109 @@
 import React, { useState } from "react";
-import JSZip from "jszip";
+import { useCricsheetIndex } from "../hooks/useCricsheetIndex";
+import EventSelector from "./EventSelector";
+import YearSelector from "./YearSelector";
+import FormatSelector from "./FormatSelector";
+import MatchSelector from "./MatchSelector";
+import { useNavigate } from "react-router-dom";
 
-export default function CricsheetLoader({ onMatchSelected }) {
+export default function CricsheetLoader() {
+  const { index, loading } = useCricsheetIndex();
+  const navigate = useNavigate();
+
+  const [event, setEvent] = useState("");
   const [year, setYear] = useState("");
-  const [matches, setMatches] = useState([]);
-  const [selectedMatch, setSelectedMatch] = useState("");
-  const [status, setStatus] = useState("");
+  const [format, setFormat] = useState("");
+  const [matchFile, setMatchFile] = useState("");
+  const [matchJson, setMatchJson] = useState(null);
 
-  // Generate years dynamically up to current year + 1
-  const currentYear = new Date().getFullYear();
-  const YEARS = Array.from({ length: currentYear - 2004 + 2 }, (_, i) => currentYear + 1 - i);
-  // Example: if currentYear = 2026 → [2027, 2026, 2025, ..., 2005]
+  if (loading) return <div>Loading Cricsheet Index…</div>;
+  if (!index) return <div>Error loading index</div>;
 
-  const loadZip = async (zipName) => {
-    if (!year) {
-      alert("Please select a year first");
-      return;
-    }
+  async function loadMatchJson(fileName) {
+    const url = `${import.meta.env.VITE_BACKEND_URL}/cricsheet/${fileName}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    setMatchJson(json);
+  }
 
-    setStatus("Loading matches...");
-    setMatches([]);
-    setSelectedMatch("");
+  async function startMatch() {
+    if (!matchFile || !matchJson) return;
 
-    try {
-      const url = `https://cric-broadcast-backed.onrender.com/cricsheet/${zipName}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const matchId = crypto.randomUUID();
 
-      const blob = await res.blob();
-      const zip = await JSZip.loadAsync(blob);
-
-      const list = [];
-
-      for (const filename of Object.keys(zip.files)) {
-        if (!filename.endsWith(".json")) continue;
-
-        const file = zip.files[filename];
-        const text = await file.async("string");
-        const json = JSON.parse(text);
-
-        const info = json.info || {};
-        const dateStr = info.dates?.[0]; // <-- REAL YEAR SOURCE
-
-        if (!dateStr) continue;
-
-        const fileYear = dateStr.slice(0, 4);
-        if (fileYear !== String(year)) continue;
-
-        const teams = info.teams?.join(" vs ") || "Unknown Teams";
-        const venue = info.venue || "Unknown Venue";
-
-        list.push({
-          filename,
-          title: `${teams} – ${venue} – ${dateStr}`,
-          data: json,
-          date: dateStr,
-        });
+    await fetch(
+      `${import.meta.env.VITE_BACKEND_URL}/run-match/${matchId}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(matchJson),
       }
+    );
 
-      // Sort newest → oldest
-      list.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-      setMatches(list);
-
-      if (list.length === 0) {
-        setStatus(`No matches found for ${year} in this format.`);
-      } else {
-        setStatus(`Loaded ${list.length} matches for ${year}.`);
-      }
-    } catch (err) {
-      console.error("Error loading zip:", err);
-      setStatus("Failed to load matches. Check network/backend.");
-    }
-  };
+    navigate(`/scoreboard?matchId=${matchId}`);
+  }
 
   return (
-    <div style={{ marginTop: 20 }}>
+    <div style={{ padding: 20 }}>
       <h2>Select Match</h2>
 
-      {/* YEAR FIRST */}
-      <label style={{ marginRight: 10 }}>Year:</label>
-      <select
+      <EventSelector
+        index={index}
+        value={event}
+        onChange={(v) => {
+          setEvent(v);
+          setYear("");
+          setFormat("");
+          setMatchFile("");
+        }}
+      />
+
+      <YearSelector
+        index={index}
+        event={event}
         value={year}
-        onChange={(e) => setYear(e.target.value)}
-        style={{ marginBottom: 20 }}
+        onChange={(v) => {
+          setYear(v);
+          setFormat("");
+          setMatchFile("");
+        }}
+      />
+
+      <FormatSelector
+        index={index}
+        event={event}
+        year={year}
+        value={format}
+        onChange={(v) => {
+          setFormat(v);
+          setMatchFile("");
+        }}
+      />
+
+      <MatchSelector
+        index={index}
+        event={event}
+        year={year}
+        format={format}
+        value={matchFile}
+        onChange={(v) => {
+          setMatchFile(v);
+          loadMatchJson(v);
+        }}
+      />
+
+      <button
+        onClick={startMatch}
+        disabled={!matchJson}
+        style={{
+          marginTop: 20,
+          padding: "10px 20px",
+          fontSize: 16,
+          cursor: "pointer",
+        }}
       >
-        <option value="">-- Select Year --</option>
-        {YEARS.map((y) => (
-          <option key={y} value={y}>
-            {y}
-          </option>
-        ))}
-      </select>
-
-      {/* FORMAT BUTTONS */}
-      <div style={{ marginBottom: 10 }}>
-        <button onClick={() => loadZip("ipl_json.zip")}>Load IPL</button>
-        <button onClick={() => loadZip("t20s_json.zip")}>Load T20I</button>
-        <button onClick={() => loadZip("odis_json.zip")}>Load ODI</button>
-      </div>
-
-      {status && <p style={{ marginBottom: 10 }}>{status}</p>}
-
-      {/* MATCH DROPDOWN */}
-      {matches.length > 0 && (
-        <>
-          <select
-            value={selectedMatch}
-            onChange={(e) => setSelectedMatch(e.target.value)}
-            style={{ marginTop: 10, width: "100%" }}
-          >
-            <option value="">-- Select Match --</option>
-            {matches.map((m) => (
-              <option key={m.filename} value={m.filename}>
-                {m.title}
-              </option>
-            ))}
-          </select>
-
-          <button
-            disabled={!selectedMatch}
-            onClick={() => {
-              const match = matches.find((m) => m.filename === selectedMatch);
-              onMatchSelected(match.data);
-            }}
-            style={{ marginTop: 10 }}
-          >
-            Start Match
-          </button>
-        </>
-      )}
+        Start Match
+      </button>
     </div>
   );
 }
