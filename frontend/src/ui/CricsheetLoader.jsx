@@ -1,16 +1,12 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-
-// IMPORTANT: Linux/Render requires exact filename + extension
 import { useCricsheetIndex } from "../hooks/useCricsheetIndex.jsx";
 
 export default function CricsheetLoader() {
   const navigate = useNavigate();
   const { index, loading } = useCricsheetIndex();
 
-  const [year, setYear] = useState("");
   const [format, setFormat] = useState("");
-  const [matches, setMatches] = useState([]);
   const [selectedMatch, setSelectedMatch] = useState("");
   const [matchJson, setMatchJson] = useState(null);
 
@@ -30,28 +26,35 @@ export default function CricsheetLoader() {
     );
   }
 
-  // Load matches for selected year + format
-  function loadMatchesFor(year, format) {
-    if (!index[year] || !index[year][format]) {
-      setMatches([]);
-      return;
-    }
-    setMatches(index[year][format]);
-  }
+  // index is a flat array like ["t20s/0000821.json", "odis/0000815.json", ...]
+  // Derive formats from the first segment before "/"
+  const formats = useMemo(() => {
+    const set = new Set();
+    index.forEach((entry) => {
+      const [fmt] = entry.split("/");
+      if (fmt) set.add(fmt);
+    });
+    return Array.from(set);
+  }, [index]);
 
-  // Load JSON for selected match
-  async function loadMatchJson(fileName) {
+  // Matches for the selected format
+  const matches = useMemo(() => {
+    if (!format) return [];
+    return index.filter((entry) => entry.startsWith(`${format}/`));
+  }, [index, format]);
+
+  async function loadMatchJson(filePath) {
     try {
-      const url = `${import.meta.env.VITE_BACKEND_URL}/cricsheet/${fileName}`;
+      const url = `${import.meta.env.VITE_BACKEND_URL}/cricsheet/${filePath}`;
       const res = await fetch(url);
       const json = await res.json();
       setMatchJson(json);
     } catch (err) {
       console.error("Failed to load match JSON:", err);
+      setMatchJson(null);
     }
   }
 
-  // Start match on backend → navigate to scoreboard
   async function startMatch() {
     if (!selectedMatch || !matchJson) return;
 
@@ -77,52 +80,26 @@ export default function CricsheetLoader() {
     <div style={{ padding: 20, color: "white" }}>
       <h2>Cricket Broadcast Engine</h2>
 
-      {/* YEAR SELECTOR */}
+      {/* FORMAT SELECTOR (t20s / odis / tests) */}
       <div style={{ marginTop: 20 }}>
-        <label>Year: </label>
+        <label>Format: </label>
         <select
-          value={year}
+          value={format}
           onChange={(e) => {
-            const y = e.target.value;
-            setYear(y);
-            setFormat("");
+            const f = e.target.value;
+            setFormat(f);
             setSelectedMatch("");
             setMatchJson(null);
-            setMatches([]);
           }}
         >
-          <option value="">Select Year</option>
-          {Object.keys(index).map((y) => (
-            <option key={y} value={y}>
-              {y}
+          <option value="">Select Format</option>
+          {formats.map((f) => (
+            <option key={f} value={f}>
+              {f}
             </option>
           ))}
         </select>
       </div>
-
-      {/* FORMAT SELECTOR */}
-      {year && (
-        <div style={{ marginTop: 20 }}>
-          <label>Format: </label>
-          <select
-            value={format}
-            onChange={(e) => {
-              const f = e.target.value;
-              setFormat(f);
-              setSelectedMatch("");
-              setMatchJson(null);
-              loadMatchesFor(year, f);
-            }}
-          >
-            <option value="">Select Format</option>
-            {Object.keys(index[year] || {}).map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
 
       {/* MATCH SELECTOR */}
       {format && matches.length > 0 && (
@@ -131,15 +108,15 @@ export default function CricsheetLoader() {
           <select
             value={selectedMatch}
             onChange={(e) => {
-              const file = e.target.value;
-              setSelectedMatch(file);
-              loadMatchJson(file);
+              const filePath = e.target.value;
+              setSelectedMatch(filePath);
+              loadMatchJson(filePath);
             }}
           >
             <option value="">Select Match</option>
-            {matches.map((file) => (
-              <option key={file} value={file}>
-                {file}
+            {matches.map((filePath) => (
+              <option key={filePath} value={filePath}>
+                {filePath}
               </option>
             ))}
           </select>
