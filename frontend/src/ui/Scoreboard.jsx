@@ -1,6 +1,14 @@
 import React, { useState, useCallback } from "react";
 import { useMatchEvents } from "../three/useMatchEvents";
 import { generateIPLCommentary } from "../engine/commentaryEngine";
+import {
+  formatBallLine,
+  summarizeOver,
+  partnershipLine,
+  pressureLine,
+  bowlerPressureLine,
+  crowdReaction,
+} from "../engine/commentaryHelpers";
 
 function oversToFloat(over, ball) {
   return over + ball / 6;
@@ -12,7 +20,6 @@ function formatOvers(over, ball) {
 
 function formatDismissal(d) {
   if (!d) return "out";
-
   switch (d.kind) {
     case "caught":
       return d.fielders?.length
@@ -39,67 +46,6 @@ function formatDismissal(d) {
   }
 }
 
-function formatBallLine(over, ball, delivery) {
-  const batter = delivery.batter;
-  const bowler = delivery.bowler;
-
-  const runsObj = delivery.runs || {};
-  const totalRuns = runsObj.total || 0;
-
-  const extras = delivery.extras || {};
-  const wides = extras.wides || 0;
-  const noballs = extras.noballs || 0;
-
-  if (delivery.wickets?.length > 0) {
-    const w = delivery.wickets[0];
-    return `${over}.${ball} — WICKET! ${w.player_out} ${w.kind} b ${bowler}`;
-  }
-
-  if (wides > 0) return `${over}.${ball} — Wide ball from ${bowler}`;
-  if (noballs > 0) return `${over}.${ball} — No-ball from ${bowler}`;
-
-  if (totalRuns === 0)
-    return `${over}.${ball} — Dot ball. ${batter} defends.`;
-
-  return `${over}.${ball} — ${batter} scores ${totalRuns} run(s).`;
-}
-
-function summarizeOver(balls) {
-  if (balls.length === 0) return "";
-  return `This over so far: ${balls.join(", ")}`;
-}
-
-function partnershipLine(p) {
-  if (p.runs < 20) return null;
-  return `Partnership now ${p.runs} off ${p.balls} balls.`;
-}
-
-function pressureLine(rrr, remainingRuns) {
-  if (!rrr || rrr === "-" || rrr === "Achieved") return null;
-  const r = parseFloat(rrr);
-  if (Number.isNaN(r)) return null;
-  if (r >= 10) return `Pressure rising! Required rate at ${rrr}.`;
-  if (remainingRuns !== null && remainingRuns <= 12)
-    return `Just a couple of hits needed now!`;
-  return null;
-}
-
-function bowlerPressureLine(bowler, stats) {
-  const s = stats[bowler];
-  if (!s) return null;
-  if (s.dots >= 3) return `${bowler} building serious pressure with dot balls!`;
-  if (s.runsInOver >= 12) return `${bowler} under the pump this over!`;
-  return null;
-}
-
-function crowdReaction(runs, wicket) {
-  if (wicket) return "Crowd ERUPTS as the wicket falls!";
-  if (runs === 6) return "Crowd goes wild — that’s out of the stadium!";
-  if (runs === 4) return "Crowd loves that boundary!";
-  if (runs === 0) return "Crowd murmurs… dot ball pressure.";
-  return null;
-}
-
 export default function Scoreboard({ matchId }) {
   const [matchInfo, setMatchInfo] = useState({
     teamA: "",
@@ -120,14 +66,7 @@ export default function Scoreboard({ matchId }) {
       batters: {},
       bowlers: {},
       fow: [],
-      extras: {
-        wides: 0,
-        noballs: 0,
-        legbyes: 0,
-        byes: 0,
-        penalty: 0,
-        total: 0,
-      },
+      extras: { wides: 0, noballs: 0, legbyes: 0, byes: 0, penalty: 0, total: 0 },
     },
     2: {
       team: "",
@@ -138,14 +77,7 @@ export default function Scoreboard({ matchId }) {
       batters: {},
       bowlers: {},
       fow: [],
-      extras: {
-        wides: 0,
-        noballs: 0,
-        legbyes: 0,
-        byes: 0,
-        penalty: 0,
-        total: 0,
-      },
+      extras: { wides: 0, noballs: 0, legbyes: 0, byes: 0, penalty: 0, total: 0 },
     },
   });
 
@@ -153,6 +85,7 @@ export default function Scoreboard({ matchId }) {
   const [target, setTarget] = useState(null);
   const [maxOvers, setMaxOvers] = useState(null);
 
+  // Commentary state
   const [ballsThisOver, setBallsThisOver] = useState([]);
   const [partnership, setPartnership] = useState({ runs: 0, balls: 0 });
   const [bowlerStats, setBowlerStats] = useState({});
@@ -185,7 +118,6 @@ export default function Scoreboard({ matchId }) {
 
       const runsObj = delivery.runs || {};
       const totalRuns = runsObj.total || 0;
-      const extrasObj = delivery.extras || {};
       const wicket = delivery.wickets?.length > 0;
 
       // Compute RRR snapshot
@@ -216,7 +148,6 @@ export default function Scoreboard({ matchId }) {
           batter: delivery.batter,
           bowler: delivery.bowler,
           runs: totalRuns,
-          extras: extrasObj,
           wicket,
           over,
           ball,
@@ -303,19 +234,19 @@ export default function Scoreboard({ matchId }) {
         if (!curr.team && team) curr.team = team;
 
         const batterRuns = runsObj.batter || 0;
+        const extrasObj = delivery.extras || {};
 
-        const wides = extrasObj.wides || 0;
-        const noballs = extrasObj.noballs || 0;
-        const legbyes = extrasObj.legbyes || 0;
-        const byes = extrasObj.byes || 0;
-        const penalty = extrasObj.penalty || 0;
-
-        curr.extras.wides += wides;
-        curr.extras.noballs += noballs;
-        curr.extras.legbyes += legbyes;
-        curr.extras.byes += byes;
-        curr.extras.penalty += penalty;
-        curr.extras.total += wides + noballs + legbyes + byes + penalty;
+        curr.extras.wides += extrasObj.wides || 0;
+        curr.extras.noballs += extrasObj.noballs || 0;
+        curr.extras.legbyes += extrasObj.legbyes || 0;
+        curr.extras.byes += extrasObj.byes || 0;
+        curr.extras.penalty += extrasObj.penalty || 0;
+        curr.extras.total +=
+          (extrasObj.wides || 0) +
+          (extrasObj.noballs || 0) +
+          (extrasObj.legbyes || 0) +
+          (extrasObj.byes || 0) +
+          (extrasObj.penalty || 0);
 
         const newRuns = curr.runs + totalRuns;
         let newWickets = curr.wickets;
@@ -526,4 +457,65 @@ export default function Scoreboard({ matchId }) {
               <tr key={name}>
                 <td align="left">{name}</td>
                 <td align="center">
-                  {
+                  {overs}.{balls}
+                </td>
+                <td align="center">{s.runs}</td>
+                <td align="center">{s.wickets}</td>
+                <td align="center">{s.wides || 0}</td>
+                <td align="center">{s.noballs || 0}</td>
+                <td align="center">{econ}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    );
+  };
+
+  const renderFOW = (fow) => {
+    if (!fow || fow.length === 0) return null;
+    return (
+      <div style={{ marginTop: 10, fontSize: 13 }}>
+        <strong>Fall of wickets:</strong>{" "}
+        {fow.map((w, idx) => (
+          <span key={idx}>
+            {w.score}/{w.wicket} ({w.player}, {w.overStr})
+            {idx < fow.length - 1 ? ", " : ""}
+          </span>
+        ))}
+      </div>
+    );
+  };
+
+  const renderExtrasLine = (inn) => {
+    const e = inn.extras;
+    return (
+      <div style={{ fontSize: 14, marginTop: 5 }}>
+        Extras: {e.total} (w {e.wides}, nb {e.noballs}, lb {e.legbyes}, b{" "}
+        {e.byes}, p {e.penalty})
+      </div>
+    );
+  };
+
+  return (
+    <div
+      style={{
+        background: "#111",
+        padding: 20,
+        borderRadius: 10,
+        color: "white",
+        marginTop: 20,
+        fontFamily: "sans-serif",
+      }}
+    >
+      {/* MATCH METADATA */}
+      {matchInfo.teamA && matchInfo.teamB && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 22, fontWeight: "bold" }}>
+            {matchInfo.teamA} vs {matchInfo.teamB}
+          </div>
+          <div style={{ fontSize: 14, opacity: 0.8 }}>
+            Toss: {matchInfo.tossWinner} won the toss and chose to{" "}
+            {matchInfo.tossDecision}
+          </div>
+        </div>
