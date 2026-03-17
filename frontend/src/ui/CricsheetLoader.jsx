@@ -13,30 +13,26 @@ export default function CricsheetLoader() {
   const [debug, setDebug] = useState("");
 
   if (loading) {
-    return <div style={{ padding: 20, color: "white" }}>Loading Cricsheet index…</div>;
+    return (
+      <div style={{ padding: 20, color: "white" }}>
+        Loading Cricsheet index…
+      </div>
+    );
   }
 
   if (!index) {
-    return <div style={{ padding: 20, color: "white" }}>Failed to load Cricsheet index.</div>;
+    return (
+      <div style={{ padding: 20, color: "white" }}>
+        Failed to load Cricsheet index.
+      </div>
+    );
   }
 
-  // Ensure index is an array
-  let list = [];
-  if (Array.isArray(index)) {
-    list = index;
-  } else if (typeof index === "object") {
-    list = Object.values(index).flat();
-  }
-
-  // Derive formats
-  const formats = [];
-  list.forEach((entry) => {
-    const [fmt] = String(entry).split("/");
-    if (fmt && !formats.includes(fmt)) formats.push(fmt);
-  });
+  // Ensure index is an object with format keys
+  let formats = Object.keys(index);
 
   // Matches for selected format
-  const matches = list.filter((entry) => String(entry).startsWith(`${format}/`));
+  const matches = format ? index[format] || [] : [];
 
   async function loadMatchJson(filePath) {
     try {
@@ -49,13 +45,20 @@ export default function CricsheetLoader() {
       setMatchJson(json);
 
       const info = json.info || {};
-      const teams = Array.isArray(info.teams) ? info.teams.join(" vs ") : "Unknown Teams";
-      const date = Array.isArray(info.dates) ? info.dates[0] : "Unknown Date";
+      const teams = Array.isArray(info.teams)
+        ? info.teams.join(" vs ")
+        : "Unknown Teams";
+      const date = Array.isArray(info.dates)
+        ? info.dates[0]
+        : "Unknown Date";
       const venue = info.venue || "Unknown Venue";
 
       const title = `${teams} — ${date} — ${venue}`;
 
-      setMatchTitles((prev) => ({ ...prev, [filePath]: title }));
+      setMatchTitles((prev) => ({
+        ...prev,
+        [filePath]: title,
+      }));
     } catch (err) {
       setDebug("Error loading match: " + err.message);
       setMatchJson(null);
@@ -68,11 +71,14 @@ export default function CricsheetLoader() {
     const matchId = crypto.randomUUID();
 
     try {
-      await fetch(`${import.meta.env.VITE_BACKEND_URL}/run-match/${matchId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(matchJson),
-      });
+      await fetch(
+        `${import.meta.env.VITE_BACKEND_URL}/run-match/${matchId}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(matchJson),
+        }
+      );
 
       navigate(`/scoreboard?matchId=${matchId}`);
     } catch (err) {
@@ -97,7 +103,9 @@ export default function CricsheetLoader() {
         >
           <option value="">Select Format</option>
           {formats.map((f) => (
-            <option key={f} value={f}>{f}</option>
+            <option key={f} value={f}>
+              {f}
+            </option>
           ))}
         </select>
       </div>
