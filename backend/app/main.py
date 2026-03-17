@@ -16,6 +16,7 @@ FORMATS = {
 # Cache ZIPs in memory (RAM)
 zip_cache = {}
 
+
 def get_zip(format_key: str):
     """Fetch ZIP from Cricsheet.org and keep in memory."""
     if format_key in zip_cache:
