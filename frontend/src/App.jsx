@@ -1,6 +1,8 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, useSearchParams } from "react-router-dom";
 import { useState } from "react";
+import { useEffect } from "react";
+
 
 import CricsheetLoader from "./ui/CricsheetLoader.jsx";
 import Scoreboard from "./ui/Scoreboard.jsx";
