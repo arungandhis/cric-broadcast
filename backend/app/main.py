@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Body, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import requests
@@ -22,24 +22,19 @@ app.add_middleware(
 # ---------------------------------------------------------
 # In‑memory match storage
 # ---------------------------------------------------------
-active_matches: dict[str, dict] = {}
-active_connections: dict[str, list[WebSocket]] = {}
+active_matches = {}
+active_connections = {}
 
 # ---------------------------------------------------------
 # Run match: store JSON from frontend
 # ---------------------------------------------------------
 @app.post("/run-match/{match_id}")
 async def run_match(match_id: str, match: dict = Body(...)):
-    """
-    Accept the entire Cricsheet JSON body as the match object.
-    Store it in memory keyed by match_id.
-    """
     if not isinstance(match, dict):
-        raise HTTPException(status_code=400, detail="Match payload must be a JSON object")
+        raise HTTPException(400, "Match payload must be a JSON object")
 
-    innings = match.get("innings", [])
-    if not innings:
-        raise HTTPException(status_code=400, detail="Match JSON has no innings")
+    if "innings" not in match:
+        raise HTTPException(400, "Match JSON missing innings")
 
     active_matches[match_id] = match
     active_connections[match_id] = []
@@ -61,7 +56,7 @@ async def ws_match(websocket: WebSocket, match_id: str):
     active_connections.setdefault(match_id, []).append(websocket)
 
     try:
-        # ---- Send meta block first ----
+        # Send meta first
         info = match.get("info", {})
         await websocket.send_json({
             "type": "meta",
@@ -70,58 +65,66 @@ async def ws_match(websocket: WebSocket, match_id: str):
             "toss": info.get("toss", {}),
         })
 
-        # ---- Cricsheet innings structure ----
         innings = match.get("innings", [])
 
         for inning_index, inning in enumerate(innings, start=1):
-            # inning is like { "1st innings": { ... } }
             inning_name = list(inning.keys())[0]
             inning_data = inning[inning_name]
-
             team_name = inning_data.get("team")
-            overs = inning_data.get("overs", [])
 
-            for over in overs:
-                # over looks like: { "over": 12, "deliveries": [ { "12.1": {...} }, ... ] }
-                deliveries = over.get("deliveries", [])
+            # Cricsheet supports two structures:
+            # 1) deliveries: [ { "0.1": {...} }, ... ]
+            # 2) overs: [ { "over": 0, "deliveries": [ { "0.1": {...} } ] }, ... ]
+            deliveries_flat = []
 
-                for delivery in deliveries:
-                    # delivery is like { "12.1": { ...event... } }
-                    ball_key = list(delivery.keys())[0]
-                    event = delivery[ball_key]
+            if "deliveries" in inning_data:
+                # Flat structure
+                deliveries_flat = inning_data["deliveries"]
 
-                    # ball_key "12.1" → over_num=12, ball_num=1
-                    try:
-                        over_num, ball_num = map(int, ball_key.split("."))
-                    except Exception:
-                        over_num, ball_num = None, None
+            else:
+                # Overs structure
+                overs = inning_data.get("overs", [])
+                for over in overs:
+                    for delivery in over.get("deliveries", []):
+                        deliveries_flat.append(delivery)
 
-                    await websocket.send_json({
-                        "type": "ball",
-                        "inning": inning_index,
-                        "inning_name": inning_name,
-                        "team": team_name,
-                        "over": over_num,
-                        "ball": ball_num,
-                        "ball_key": ball_key,
-                        "event": event,
-                    })
+            # Stream each ball
+            for delivery in deliveries_flat:
+                ball_key = list(delivery.keys())[0]
+                event = delivery[ball_key]
 
-                    # control playback speed
-                    await asyncio.sleep(0.35)
+                try:
+                    over_num, ball_num = map(int, ball_key.split("."))
+                except:
+                    over_num, ball_num = None, None
 
+                await websocket.send_json({
+                    "type": "ball",
+                    "inning": inning_index,
+                    "inning_name": inning_name,
+                    "team": team_name,
+                    "over": over_num,
+                    "ball": ball_num,
+                    "ball_key": ball_key,
+                    "event": event,
+                })
+
+                await asyncio.sleep(0.35)
+
+        # Match complete
         await websocket.send_json({"type": "end"})
         await websocket.close()
 
     except WebSocketDisconnect:
         pass
+
     except Exception as e:
-        # send error to this client only
         try:
-            await websocket.send_json({"type": "error", "message": f"Server error: {str(e)}"})
-        except Exception:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
             pass
         await websocket.close()
+
     finally:
         conns = active_connections.get(match_id, [])
         if websocket in conns:
@@ -138,9 +141,9 @@ FORMATS = {
     "tests": "tests_male_json.zip",
 }
 
-zip_cache: dict[str, zipfile.ZipFile] = {}
+zip_cache = {}
 
-def get_zip(format_key: str) -> zipfile.ZipFile:
+def get_zip(format_key: str):
     if format_key in zip_cache:
         return zip_cache[format_key]
 
@@ -157,7 +160,7 @@ def get_zip(format_key: str) -> zipfile.ZipFile:
     zip_cache[format_key] = zipfile.ZipFile(io.BytesIO(r.content))
     return zip_cache[format_key]
 
-def is_real_world_cup(event_name: str) -> bool:
+def is_real_world_cup(event_name: str):
     if "World Cup" not in event_name:
         return False
 
@@ -193,7 +196,7 @@ def world_cup_index():
                 "year": year,
                 "teams": teams,
             })
-        except Exception:
+        except:
             continue
 
     matches.sort(key=lambda m: m["year"] or 0, reverse=True)
@@ -208,7 +211,6 @@ def cricsheet_match(format: str, filename: str):
 
     try:
         with z.open(filename) as f:
-            # return parsed JSON so frontend gets an object, not a string
             return json.load(f)
     except KeyError:
         raise HTTPException(404, "Match not found")
