@@ -7,7 +7,7 @@ export function useCricsheetIndex() {
   useEffect(() => {
     async function load() {
       const url = `${import.meta.env.VITE_BACKEND_URL}/cricsheet/index.json`;
-      console.log("Fetching index from:", url);
+      console.log("FETCHING INDEX FROM:", url);
 
       try {
         const res = await fetch(url);
@@ -19,11 +19,11 @@ export function useCricsheetIndex() {
         }
 
         const json = await res.json();
-        console.log("Received index:", json);
+        console.log("RECEIVED JSON:", json);
 
         setIndex(json);
       } catch (err) {
-        console.error("Fetch error:", err);
+        console.error("FETCH ERROR:", err);
         setIndex(null);
       } finally {
         setLoading(false);
