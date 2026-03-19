@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
 export function useMatchEvents(wsUrl) {
-  // ⭐ Always return a safe default object
   const [state, setState] = useState({
     events: [],
     connected: false,
@@ -11,10 +10,7 @@ export function useMatchEvents(wsUrl) {
   const wsRef = useRef(null);
 
   useEffect(() => {
-    if (!wsUrl) {
-      // No URL yet → keep defaults
-      return;
-    }
+    if (!wsUrl) return;
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -35,9 +31,12 @@ export function useMatchEvents(wsUrl) {
       }
     };
 
-    ws.onerror = (err) => {
-      console.error("WS error:", err);
-      setState((s) => ({ ...s, error: "WebSocket error", connected: false }));
+    ws.onerror = () => {
+      setState((s) => ({
+        ...s,
+        error: "WebSocket error",
+        connected: false,
+      }));
     };
 
     ws.onclose = () => {
