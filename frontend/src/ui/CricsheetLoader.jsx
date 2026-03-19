@@ -44,7 +44,7 @@ export default function CricsheetLoader() {
   async function loadMatchJson(filePath) {
     try {
       // FIXED: correct backend route
-      const url = `${import.meta.env.VITE_BACKEND_URL}/cricsheet/${filePath}`;
+      const url = `${import.meta.env.VITE_BACKEND_URL}/cricsheet/odis/${filePath}`;
       setDebug(`Fetching: ${url}`);
 
       const res = await fetch(url);
