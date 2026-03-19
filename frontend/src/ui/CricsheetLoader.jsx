@@ -43,6 +43,7 @@ export default function CricsheetLoader() {
 
   async function loadMatchJson(filePath) {
     try {
+      // FIXED: correct backend route
       const url = `${import.meta.env.VITE_BACKEND_URL}/cricsheet/${filePath}`;
       setDebug(`Fetching: ${url}`);
 
@@ -71,7 +72,11 @@ export default function CricsheetLoader() {
         }
       );
 
-      navigate(`/scoreboard?matchId=${matchId}`);
+      // ⭐ CRITICAL FIX: wait for backend to register match
+      setTimeout(() => {
+        navigate(`/scoreboard?matchId=${matchId}`);
+      }, 350);
+
     } catch (err) {
       setDebug("Error starting match: " + err.message);
     }
