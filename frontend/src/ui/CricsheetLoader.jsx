@@ -38,10 +38,11 @@ export default function CricsheetLoader() {
     try {
       const url = `${import.meta.env.VITE_BACKEND_URL}/cricsheet/${filePath}`;
       setDebug(`Fetching: ${url}`);
-
+console.log("Fetching index from:", url);
       const res = await fetch(url);
       const json = await res.json();
 
+console.log("INDEX JSON LOADED:", json);
       setMatchJson(json);
 
       const info = json.info || {};
