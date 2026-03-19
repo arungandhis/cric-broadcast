@@ -14,21 +14,18 @@ FORMATS = {
     "tests": "tests_male_json.zip",
 }
 
-# Cache ZIPs in memory (RAM)
+# Cache ZIPs in memory
 zip_cache = {}
 
-WORLD_CUP_KEYWORDS = [
-    "World Cup",
-    "ICC Cricket World Cup",
-    "ICC Men's Cricket World Cup",
-    "Prudential World Cup",
-    "Reliance World Cup",
-    "Benson & Hedges World Cup",
-    "Wills World Cup"
+# Strict list of REAL ICC Men's Cricket World Cup event names (1975 → 2023)
+WORLD_CUP_EVENTS = [
+    "Prudential World Cup",            # 1975, 1979, 1983
+    "Reliance World Cup",              # 1987
+    "Benson & Hedges World Cup",       # 1992
+    "Wills World Cup",                 # 1996
+    "ICC Cricket World Cup",           # 1999, 2003, 2007, 2011, 2015, 2019
+    "ICC Men's Cricket World Cup"      # 2023
 ]
-
-def is_world_cup_event(name: str):
-    return any(keyword in name for keyword in WORLD_CUP_KEYWORDS)
 
 
 def get_zip(format_key: str):
@@ -52,7 +49,10 @@ def get_zip(format_key: str):
 
 @app.get("/cricsheet/index.json")
 def world_cup_index():
-    """Return ONLY ICC Men's Cricket World Cup matches (1975 → 2023)."""
+    """
+    Return ONLY ICC Men's Cricket World Cup matches (1975 → 2023).
+    Extracted directly from the ODI ZIP.
+    """
     z = get_zip("odis")  # World Cup matches are all ODIs
 
     matches = []
@@ -69,8 +69,8 @@ def world_cup_index():
             event = info.get("event", {})
             event_name = event.get("name", "")
 
-            # Skip non-World Cup matches
-            if not is_world_cup_event(event_name):
+            # STRICT World Cup filter
+            if event_name not in WORLD_CUP_EVENTS:
                 continue
 
             teams = info.get("teams", [])
@@ -89,7 +89,7 @@ def world_cup_index():
     # Sort newest → oldest
     matches.sort(key=lambda m: m["year"], reverse=True)
 
-    return { "world_cup": matches }
+    return {"world_cup": matches}
 
 
 @app.get("/cricsheet/{format}/{filename}")
