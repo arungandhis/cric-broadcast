@@ -30,7 +30,9 @@ export default function Scoreboard() {
 
       if (data.type === "meta") {
         setMeta(data);
-      } else if (data.type === "event") {
+
+      // ⭐ FIX: listen for "ball" instead of "event"
+      } else if (data.type === "ball") {
         setEvents((prev) => [...prev, data]);
       }
     };
