@@ -14,22 +14,9 @@ FORMATS = {
     "tests": "tests_male_json.zip",
 }
 
-# Cache ZIPs in memory
 zip_cache = {}
 
-# Strict list of REAL ICC Men's Cricket World Cup event names (1975 → 2023)
-WORLD_CUP_EVENTS = [
-    "Prudential World Cup",            # 1975, 1979, 1983
-    "Reliance World Cup",              # 1987
-    "Benson & Hedges World Cup",       # 1992
-    "Wills World Cup",                 # 1996
-    "ICC Cricket World Cup",           # 1999, 2003, 2007, 2011, 2015, 2019
-    "ICC Men's Cricket World Cup"      # 2023
-]
-
-
 def get_zip(format_key: str):
-    """Fetch ZIP from Cricsheet.org and keep in memory."""
     if format_key in zip_cache:
         return zip_cache[format_key]
 
@@ -47,13 +34,26 @@ def get_zip(format_key: str):
     return zip_cache[format_key]
 
 
+def is_real_world_cup(event_name: str):
+    """Return True only for REAL ICC Men's Cricket World Cup matches."""
+    if "World Cup" not in event_name:
+        return False
+
+    EXCLUDE = [
+        "Qualifier",
+        "League",
+        "Playoff",
+        "Challenge",
+        "Super League",
+        "League 2"
+    ]
+
+    return not any(bad in event_name for bad in EXCLUDE)
+
+
 @app.get("/cricsheet/index.json")
 def world_cup_index():
-    """
-    Return ONLY ICC Men's Cricket World Cup matches (1975 → 2023).
-    Extracted directly from the ODI ZIP.
-    """
-    z = get_zip("odis")  # World Cup matches are all ODIs
+    z = get_zip("odis")
 
     matches = []
 
@@ -69,8 +69,7 @@ def world_cup_index():
             event = info.get("event", {})
             event_name = event.get("name", "")
 
-            # STRICT World Cup filter
-            if event_name not in WORLD_CUP_EVENTS:
+            if not is_real_world_cup(event_name):
                 continue
 
             teams = info.get("teams", [])
@@ -86,7 +85,6 @@ def world_cup_index():
         except Exception:
             continue
 
-    # Sort newest → oldest
     matches.sort(key=lambda m: m["year"], reverse=True)
 
     return {"world_cup": matches}
@@ -94,7 +92,6 @@ def world_cup_index():
 
 @app.get("/cricsheet/{format}/{filename}")
 def cricsheet_match(format: str, filename: str):
-    """Return the actual match JSON directly from Cricsheet ZIP."""
     if format not in FORMATS:
         raise HTTPException(404, "Invalid format")
 
