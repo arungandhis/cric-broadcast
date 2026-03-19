@@ -1,120 +1,65 @@
-import React, { useState } from "react";
-import JSZip from "jszip";
+import json
+import os
 
-export default function CricsheetLoader({ onMatchSelected }) {
-  const [loading, setLoading] = useState(false);
-  const [matches, setMatches] = useState([]);
-  const [selected, setSelected] = useState(null);
+# Path to extracted ODIS folder from odis.zip
+CRICSHEET_DIR = "cricsheet/odis"
 
-  const loadZip = async (url) => {
-    setLoading(true);
-    setMatches([]);
+# All historical World Cup event names (1975 → 2023)
+WORLD_CUP_KEYWORDS = [
+    "World Cup",
+    "ICC Cricket World Cup",
+    "ICC Men's Cricket World Cup",
+    "Prudential World Cup",
+    "Reliance World Cup",
+    "Benson & Hedges World Cup",
+    "Wills World Cup"
+]
 
-    try {
-      console.log("Fetching ZIP:", url);
-      const res = await fetch(url);
-      const blob = await res.blob();
+def is_world_cup_event(name: str):
+    """Return True if the event name matches any World Cup keyword."""
+    return any(keyword in name for keyword in WORLD_CUP_KEYWORDS)
 
-      const zip = await JSZip.loadAsync(blob);
 
-      const matchList = [];
+def load_world_cup_index():
+    """Scan ODIS folder and return ONLY ICC Men's Cricket World Cup matches."""
+    matches = []
 
-      // Get all JSON files inside the ZIP
-      const files = Object.values(zip.files).filter((f) =>
-        f.name.endsWith(".json")
-      );
+    for root, _, files in os.walk(CRICSHEET_DIR):
+        for f in files:
+            if not f.endswith(".json"):
+                continue
 
-      console.log("Found JSON files:", files.length);
+            path = os.path.join(root, f)
 
-      for (const file of files) {
-        const text = await file.async("string");
-        const json = JSON.parse(text);
+            try:
+                with open(path, "r") as fp:
+                    data = json.load(fp)
 
-        const info = json.info || {};
-        const title = `${info.teams?.join(" vs ")} — ${info.dates?.[0]}`;
+                info = data.get("info", {})
+                event = info.get("event", {})
+                name = event.get("name", "")
 
-        matchList.push({
-          filename: file.name,
-          json,
-          title,
-        });
+                # Skip non-World Cup matches
+                if not is_world_cup_event(name):
+                    continue
 
-        // Yield to UI to avoid freezing
-        await new Promise((r) => setTimeout(r, 0));
-      }
+                teams = info.get("teams", [])
+                dates = info.get("dates", [])
+                year = int(str(dates[0])[0:4]) if dates else None
 
-      console.log("Loaded matches:", matchList.length);
-      setMatches(matchList);
-    } catch (err) {
-      console.error("Error loading Cricsheet ZIP:", err);
-    }
+                # Convert to relative path for frontend
+                rel_path = os.path.relpath(path, "cricsheet")
 
-    setLoading(false);
-  };
+                matches.append({
+                    "file": rel_path,
+                    "year": year,
+                    "teams": teams
+                })
 
-  return (
-    <div style={{ color: "white", marginBottom: 20 }}>
-      <h2>Select Match</h2>
+            except Exception:
+                continue
 
-      <button
-        onClick={() =>
-          loadZip(
-            "https://cric-broadcast-backed.onrender.com/cricsheet/ipl_json.zip"
-          )
-        }
-        style={{ padding: 10, marginRight: 10 }}
-      >
-        Load IPL
-      </button>
+    # Sort newest → oldest
+    matches.sort(key=lambda m: m["year"], reverse=True)
 
-      <button
-        onClick={() =>
-          loadZip(
-            "https://cric-broadcast-backed.onrender.com/cricsheet/t20s_json.zip"
-          )
-        }
-        style={{ padding: 10, marginRight: 10 }}
-      >
-        Load T20I
-      </button>
-
-      <button
-        onClick={() =>
-          loadZip(
-            "https://cric-broadcast-backed.onrender.com/cricsheet/odis_json.zip"
-          )
-        }
-        style={{ padding: 10, marginRight: 10 }}
-      >
-        Load ODI
-      </button>
-
-      {loading && <p>Loading matches…</p>}
-
-      {!loading && matches.length > 0 && (
-        <>
-          <select
-            value={selected || ""}
-            onChange={(e) => setSelected(e.target.value)}
-            style={{ marginTop: 20, width: "300px" }}
-          >
-            <option value="">-- Select Match --</option>
-            {matches.map((m, i) => (
-              <option key={i} value={i}>
-                {m.title}
-              </option>
-            ))}
-          </select>
-
-          <button
-            disabled={selected === null}
-            onClick={() => onMatchSelected(matches[selected].json)}
-            style={{ marginLeft: 10, padding: 10 }}
-          >
-            Start Match
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
+    return { "world_cup": matches }
