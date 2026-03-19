@@ -13,45 +13,37 @@ export default function CricsheetLoader() {
   const [debug, setDebug] = useState("");
 
   if (loading) {
-    return (
-      <div style={{ padding: 20, color: "white" }}>
-        Loading Cricsheet index…
-      </div>
-    );
+    return <div style={{ padding: 20, color: "white" }}>Loading Cricsheet index…</div>;
   }
 
-  if (!index) {
-    return (
-      <div style={{ padding: 20, color: "white" }}>
-        Failed to load Cricsheet index.
-      </div>
-    );
+  if (!index || !Array.isArray(index)) {
+    return <div style={{ padding: 20, color: "white" }}>Failed to load Cricsheet index.</div>;
   }
 
-  // Ensure index is an object with format keys
-  let formats = Object.keys(index);
+  // Group files by format (t20s, odis, tests)
+  const grouped = index.reduce((acc, filePath) => {
+    const format = filePath.split("/")[0]; // "t20s", "odis", "tests"
+    if (!acc[format]) acc[format] = [];
+    acc[format].push(filePath);
+    return acc;
+  }, {});
 
-  // Matches for selected format
-  const matches = format ? index[format] || [] : [];
+  const formats = Object.keys(grouped);
+  const matches = format ? grouped[format] : [];
 
   async function loadMatchJson(filePath) {
     try {
       const url = `${import.meta.env.VITE_BACKEND_URL}/cricsheet/${filePath}`;
       setDebug(`Fetching: ${url}`);
-console.log("Fetching index from:", url);
+
       const res = await fetch(url);
       const json = await res.json();
 
-console.log("INDEX JSON LOADED:", json);
       setMatchJson(json);
 
       const info = json.info || {};
-      const teams = Array.isArray(info.teams)
-        ? info.teams.join(" vs ")
-        : "Unknown Teams";
-      const date = Array.isArray(info.dates)
-        ? info.dates[0]
-        : "Unknown Date";
+      const teams = Array.isArray(info.teams) ? info.teams.join(" vs ") : "Unknown Teams";
+      const date = Array.isArray(info.dates) ? info.dates[0] : "Unknown Date";
       const venue = info.venue || "Unknown Venue";
 
       const title = `${teams} — ${date} — ${venue}`;
@@ -72,14 +64,11 @@ console.log("INDEX JSON LOADED:", json);
     const matchId = crypto.randomUUID();
 
     try {
-      await fetch(
-        `${import.meta.env.VITE_BACKEND_URL}/run-match/${matchId}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(matchJson),
-        }
-      );
+      await fetch(`${import.meta.env.VITE_BACKEND_URL}/run-match/${matchId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(matchJson),
+      });
 
       navigate(`/scoreboard?matchId=${matchId}`);
     } catch (err) {
@@ -147,7 +136,7 @@ console.log("INDEX JSON LOADED:", json);
         Start Match
       </button>
 
-      {/* DEBUG OUTPUT (visible on phone) */}
+      {/* DEBUG OUTPUT */}
       {debug && (
         <pre style={{ marginTop: 20, color: "yellow", whiteSpace: "pre-wrap" }}>
           {debug}
