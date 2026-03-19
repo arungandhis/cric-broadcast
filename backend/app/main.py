@@ -1,26 +1,107 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
+import json
 import requests
 import zipfile
 import io
-import json
 
 app = FastAPI()
 
 # ---------------------------------------------------------
-# CORS — REQUIRED for frontend to access backend
+# CORS
 # ---------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # Allow all origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ---------------------------------------------------------
-# Cricsheet ZIP configuration
+# MATCH STORAGE
 # ---------------------------------------------------------
+active_matches = {}       # match_id → match JSON
+active_connections = {}   # match_id → list of WebSocket connections
+
+# ---------------------------------------------------------
+# RUN MATCH ENDPOINT
+# ---------------------------------------------------------
+@app.post("/run-match/{match_id}")
+async def run_match(match_id: str, match: dict):
+    """
+    Store match JSON and prepare for WebSocket streaming.
+    """
+    active_matches[match_id] = match
+    active_connections[match_id] = []
+    return {"status": "ready", "match_id": match_id}
+
+# ---------------------------------------------------------
+# WEBSOCKET STREAM
+# ---------------------------------------------------------
+@app.websocket("/ws/match/{match_id}")
+async def ws_match(websocket: WebSocket, match_id: str):
+    await websocket.accept()
+
+    if match_id not in active_matches:
+        await websocket.send_json({"error": "Match not found"})
+        await websocket.close()
+        return
+
+    # Register connection
+    active_connections[match_id].append(websocket)
+
+    match = active_matches[match_id]
+
+    try:
+        # Send metadata first
+        await websocket.send_json({
+            "type": "meta",
+            "teams": match["info"]["teams"],
+            "event": match["info"].get("event", {}),
+            "toss": match["info"].get("toss", {})
+        })
+
+        # Stream ball-by-ball events
+        for inning_index, inning in enumerate(match["innings"], start=1):
+            inning_name = list(inning.keys())[0]
+            deliveries = inning[inning_name]["deliveries"]
+
+            for delivery in deliveries:
+                over = list(delivery.keys())[0]
+                event = delivery[over]
+
+                over_num, ball_num = map(int, over.split("."))
+
+                payload = {
+                    "type": "ball",
+                    "inning": inning_index,
+                    "team": inning_name,
+                    "over": over_num,
+                    "ball": ball_num,
+                    "event": event
+                }
+
+                await websocket.send_json(payload)
+                await asyncio.sleep(0.35)  # smooth streaming
+
+        await websocket.send_json({"type": "end"})
+        await websocket.close()
+
+    except WebSocketDisconnect:
+        pass
+
+    finally:
+        # Remove connection
+        if match_id in active_connections:
+            if websocket in active_connections[match_id]:
+                active_connections[match_id].remove(websocket)
+
+# ---------------------------------------------------------
+# YOUR EXISTING CRICSHEET ENDPOINTS (unchanged)
+# ---------------------------------------------------------
+
 CRICSHEET_BASE = "https://cricsheet.org/downloads/"
 
 FORMATS = {
@@ -31,9 +112,6 @@ FORMATS = {
 
 zip_cache = {}
 
-# ---------------------------------------------------------
-# Helper: Load ZIP into memory
-# ---------------------------------------------------------
 def get_zip(format_key: str):
     if format_key in zip_cache:
         return zip_cache[format_key]
@@ -51,35 +129,16 @@ def get_zip(format_key: str):
     zip_cache[format_key] = zipfile.ZipFile(io.BytesIO(r.content))
     return zip_cache[format_key]
 
-# ---------------------------------------------------------
-# Helper: Strict World Cup filter
-# ---------------------------------------------------------
 def is_real_world_cup(event_name: str):
-    """
-    Include ONLY real ICC Men's Cricket World Cup matches.
-    Exclude qualifiers, leagues, playoffs, challenge leagues, etc.
-    """
     if "World Cup" not in event_name:
         return False
 
-    EXCLUDE = [
-        "Qualifier",
-        "League",
-        "Playoff",
-        "Challenge",
-        "Super League",
-        "League 2"
-    ]
-
+    EXCLUDE = ["Qualifier", "League", "Playoff", "Challenge", "Super League", "League 2"]
     return not any(bad in event_name for bad in EXCLUDE)
 
-# ---------------------------------------------------------
-# Endpoint: World Cup index
-# ---------------------------------------------------------
 @app.get("/cricsheet/index.json")
 def world_cup_index():
     z = get_zip("odis")
-
     matches = []
 
     for name in z.namelist():
@@ -94,7 +153,6 @@ def world_cup_index():
             event = info.get("event", {})
             event_name = event.get("name", "")
 
-            # Filter only real World Cup matches
             if not is_real_world_cup(event_name):
                 continue
 
@@ -111,14 +169,9 @@ def world_cup_index():
         except Exception:
             continue
 
-    # Sort newest → oldest
     matches.sort(key=lambda m: m["year"], reverse=True)
-
     return {"world_cup": matches}
 
-# ---------------------------------------------------------
-# Endpoint: Fetch match JSON
-# ---------------------------------------------------------
 @app.get("/cricsheet/{format}/{filename}")
 def cricsheet_match(format: str, filename: str):
     if format not in FORMATS:
