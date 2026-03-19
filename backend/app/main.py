@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import requests
 import zipfile
 import io
@@ -6,6 +7,20 @@ import json
 
 app = FastAPI()
 
+# ---------------------------------------------------------
+# CORS — REQUIRED for frontend to access backend
+# ---------------------------------------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],          # Allow all origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------------------------------------------------------
+# Cricsheet ZIP configuration
+# ---------------------------------------------------------
 CRICSHEET_BASE = "https://cricsheet.org/downloads/"
 
 FORMATS = {
@@ -16,6 +31,9 @@ FORMATS = {
 
 zip_cache = {}
 
+# ---------------------------------------------------------
+# Helper: Load ZIP into memory
+# ---------------------------------------------------------
 def get_zip(format_key: str):
     if format_key in zip_cache:
         return zip_cache[format_key]
@@ -33,9 +51,14 @@ def get_zip(format_key: str):
     zip_cache[format_key] = zipfile.ZipFile(io.BytesIO(r.content))
     return zip_cache[format_key]
 
-
+# ---------------------------------------------------------
+# Helper: Strict World Cup filter
+# ---------------------------------------------------------
 def is_real_world_cup(event_name: str):
-    """Return True only for REAL ICC Men's Cricket World Cup matches."""
+    """
+    Include ONLY real ICC Men's Cricket World Cup matches.
+    Exclude qualifiers, leagues, playoffs, challenge leagues, etc.
+    """
     if "World Cup" not in event_name:
         return False
 
@@ -50,7 +73,9 @@ def is_real_world_cup(event_name: str):
 
     return not any(bad in event_name for bad in EXCLUDE)
 
-
+# ---------------------------------------------------------
+# Endpoint: World Cup index
+# ---------------------------------------------------------
 @app.get("/cricsheet/index.json")
 def world_cup_index():
     z = get_zip("odis")
@@ -69,6 +94,7 @@ def world_cup_index():
             event = info.get("event", {})
             event_name = event.get("name", "")
 
+            # Filter only real World Cup matches
             if not is_real_world_cup(event_name):
                 continue
 
@@ -85,11 +111,14 @@ def world_cup_index():
         except Exception:
             continue
 
+    # Sort newest → oldest
     matches.sort(key=lambda m: m["year"], reverse=True)
 
     return {"world_cup": matches}
 
-
+# ---------------------------------------------------------
+# Endpoint: Fetch match JSON
+# ---------------------------------------------------------
 @app.get("/cricsheet/{format}/{filename}")
 def cricsheet_match(format: str, filename: str):
     if format not in FORMATS:
