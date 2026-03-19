@@ -67,49 +67,30 @@ async def ws_match(websocket: WebSocket, match_id: str):
 
         innings = match.get("innings", [])
 
+        # ---------------------------------------------------------
+        # CORRECT CRICSHEET STRUCTURE:
+        # innings[] → { "team": "...", "overs": [ { "over": 0, "deliveries": [ {...}, {...} ] } ] }
+        # ---------------------------------------------------------
         for inning_index, inning in enumerate(innings, start=1):
-            inning_name = list(inning.keys())[0]
-            inning_data = inning[inning_name]
-            team_name = inning_data.get("team")
+            team_name = inning.get("team", f"Innings {inning_index}")
+            overs = inning.get("overs", [])
 
-            # Cricsheet supports two structures:
-            # 1) deliveries: [ { "0.1": {...} }, ... ]
-            # 2) overs: [ { "over": 0, "deliveries": [ { "0.1": {...} } ] }, ... ]
-            deliveries_flat = []
+            for over in overs:
+                over_number = over.get("over")
+                deliveries = over.get("deliveries", [])
 
-            if "deliveries" in inning_data:
-                # Flat structure
-                deliveries_flat = inning_data["deliveries"]
+                for ball_index, delivery in enumerate(deliveries, start=1):
 
-            else:
-                # Overs structure
-                overs = inning_data.get("overs", [])
-                for over in overs:
-                    for delivery in over.get("deliveries", []):
-                        deliveries_flat.append(delivery)
+                    await websocket.send_json({
+                        "type": "ball",
+                        "inning": inning_index,
+                        "team": team_name,
+                        "over": over_number,
+                        "ball": ball_index,
+                        "event": delivery,
+                    })
 
-            # Stream each ball
-            for delivery in deliveries_flat:
-                ball_key = list(delivery.keys())[0]
-                event = delivery[ball_key]
-
-                try:
-                    over_num, ball_num = map(int, ball_key.split("."))
-                except:
-                    over_num, ball_num = None, None
-
-                await websocket.send_json({
-                    "type": "ball",
-                    "inning": inning_index,
-                    "inning_name": inning_name,
-                    "team": team_name,
-                    "over": over_num,
-                    "ball": ball_num,
-                    "ball_key": ball_key,
-                    "event": event,
-                })
-
-                await asyncio.sleep(0.35)
+                    await asyncio.sleep(0.35)
 
         # Match complete
         await websocket.send_json({"type": "end"})
@@ -192,7 +173,7 @@ def world_cup_index():
             year = int(str(dates[0])[0:4]) if dates else None
 
             matches.append({
-                "file": f"odis/{name}",
+                "file": name,  # FIXED: return only filename
                 "year": year,
                 "teams": teams,
             })
