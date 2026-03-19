@@ -43,7 +43,7 @@ export default function CricsheetLoader() {
 
   async function loadMatchJson(filePath) {
     try {
-      const url = `${import.meta.env.VITE_BACKEND_URL}/${filePath}`;
+      const url = `${import.meta.env.VITE_BACKEND_URL}/cricsheet/${filePath}`;
       setDebug(`Fetching: ${url}`);
 
       const res = await fetch(url);
