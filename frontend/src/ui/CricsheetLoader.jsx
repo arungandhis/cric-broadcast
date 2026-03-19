@@ -6,30 +6,46 @@ export default function CricsheetLoader() {
   const navigate = useNavigate();
   const { index, loading } = useCricsheetIndex();
 
-  const [format, setFormat] = useState("");
+  const [selectedYear, setSelectedYear] = useState("");
+  const [selectedTeam, setSelectedTeam] = useState("");
   const [selectedMatch, setSelectedMatch] = useState("");
   const [matchJson, setMatchJson] = useState(null);
   const [matchTitles, setMatchTitles] = useState({});
   const [debug, setDebug] = useState("");
 
   if (loading) {
-    return <div style={{ padding: 20, color: "white" }}>Loading Cricsheet index…</div>;
+    return (
+      <div style={{ padding: 20, color: "white" }}>
+        Loading ICC World Cup index…
+      </div>
+    );
   }
 
-  if (!index || !Array.isArray(index)) {
-    return <div style={{ padding: 20, color: "white" }}>Failed to load Cricsheet index.</div>;
+  if (!index || !index.world_cup) {
+    return (
+      <div style={{ padding: 20, color: "white" }}>
+        Failed to load World Cup index.
+      </div>
+    );
   }
 
-  // Group files by format (t20s, odis, tests)
-  const grouped = index.reduce((acc, filePath) => {
-    const format = filePath.split("/")[0]; // "t20s", "odis", "tests"
-    if (!acc[format]) acc[format] = [];
-    acc[format].push(filePath);
-    return acc;
-  }, {});
+  const matches = index.world_cup;
 
-  const formats = Object.keys(grouped);
-  const matches = format ? grouped[format] : [];
+  // Extract unique years (newest → oldest)
+  const years = [...new Set(matches.map((m) => m.year))].sort(
+    (a, b) => b - a
+  );
+
+  // Extract unique teams
+  const teams = [
+    ...new Set(matches.flatMap((m) => m.teams)),
+  ].sort();
+
+  // Apply filters
+  const filteredMatches = matches
+    .filter((m) => !selectedYear || m.year === selectedYear)
+    .filter((m) => !selectedTeam || m.teams.includes(selectedTeam))
+    .sort((a, b) => b.year - a.year); // newest first
 
   async function loadMatchJson(filePath) {
     try {
@@ -42,8 +58,12 @@ export default function CricsheetLoader() {
       setMatchJson(json);
 
       const info = json.info || {};
-      const teams = Array.isArray(info.teams) ? info.teams.join(" vs ") : "Unknown Teams";
-      const date = Array.isArray(info.dates) ? info.dates[0] : "Unknown Date";
+      const teams = Array.isArray(info.teams)
+        ? info.teams.join(" vs ")
+        : "Unknown Teams";
+      const date = Array.isArray(info.dates)
+        ? info.dates[0]
+        : "Unknown Date";
       const venue = info.venue || "Unknown Venue";
 
       const title = `${teams} — ${date} — ${venue}`;
@@ -64,11 +84,14 @@ export default function CricsheetLoader() {
     const matchId = crypto.randomUUID();
 
     try {
-      await fetch(`${import.meta.env.VITE_BACKEND_URL}/run-match/${matchId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(matchJson),
-      });
+      await fetch(
+        `${import.meta.env.VITE_BACKEND_URL}/run-match/${matchId}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(matchJson),
+        }
+      );
 
       navigate(`/scoreboard?matchId=${matchId}`);
     } catch (err) {
@@ -78,30 +101,51 @@ export default function CricsheetLoader() {
 
   return (
     <div style={{ padding: 20, color: "white" }}>
-      <h2>Cricket Broadcast Engine</h2>
+      <h2>ICC Men's Cricket World Cup</h2>
 
-      {/* FORMAT SELECTOR */}
+      {/* YEAR SELECTOR */}
       <div style={{ marginTop: 20 }}>
-        <label>Format: </label>
+        <label>Year: </label>
         <select
-          value={format}
+          value={selectedYear}
           onChange={(e) => {
-            setFormat(e.target.value);
+            setSelectedYear(Number(e.target.value));
+            setSelectedTeam("");
             setSelectedMatch("");
             setMatchJson(null);
           }}
         >
-          <option value="">Select Format</option>
-          {formats.map((f) => (
-            <option key={f} value={f}>
-              {f}
+          <option value="">All Years</option>
+          {years.map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* TEAM SELECTOR */}
+      <div style={{ marginTop: 20 }}>
+        <label>Team: </label>
+        <select
+          value={selectedTeam}
+          onChange={(e) => {
+            setSelectedTeam(e.target.value);
+            setSelectedMatch("");
+            setMatchJson(null);
+          }}
+        >
+          <option value="">All Teams</option>
+          {teams.map((t) => (
+            <option key={t} value={t}>
+              {t}
             </option>
           ))}
         </select>
       </div>
 
       {/* MATCH SELECTOR */}
-      {format && matches.length > 0 && (
+      {filteredMatches.length > 0 && (
         <div style={{ marginTop: 20 }}>
           <label>Match: </label>
           <select
@@ -113,9 +157,9 @@ export default function CricsheetLoader() {
             }}
           >
             <option value="">Select Match</option>
-            {matches.map((filePath) => (
-              <option key={filePath} value={filePath}>
-                {matchTitles[filePath] || filePath}
+            {filteredMatches.map((m) => (
+              <option key={m.file} value={m.file}>
+                {m.teams.join(" vs ")} — {m.year}
               </option>
             ))}
           </select>
