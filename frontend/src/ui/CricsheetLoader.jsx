@@ -10,7 +10,6 @@ export default function CricsheetLoader() {
   const [selectedTeam, setSelectedTeam] = useState("");
   const [selectedMatch, setSelectedMatch] = useState("");
   const [matchJson, setMatchJson] = useState(null);
-  const [matchTitles, setMatchTitles] = useState({});
   const [debug, setDebug] = useState("");
 
   if (loading) {
@@ -45,7 +44,7 @@ export default function CricsheetLoader() {
   const filteredMatches = matches
     .filter((m) => !selectedYear || m.year === selectedYear)
     .filter((m) => !selectedTeam || m.teams.includes(selectedTeam))
-    .sort((a, b) => b.year - a.year); // newest first
+    .sort((a, b) => b.year - a.year);
 
   async function loadMatchJson(filePath) {
     try {
@@ -56,22 +55,6 @@ export default function CricsheetLoader() {
       const json = await res.json();
 
       setMatchJson(json);
-
-      const info = json.info || {};
-      const teams = Array.isArray(info.teams)
-        ? info.teams.join(" vs ")
-        : "Unknown Teams";
-      const date = Array.isArray(info.dates)
-        ? info.dates[0]
-        : "Unknown Date";
-      const venue = info.venue || "Unknown Venue";
-
-      const title = `${teams} — ${date} — ${venue}`;
-
-      setMatchTitles((prev) => ({
-        ...prev,
-        [filePath]: title,
-      }));
     } catch (err) {
       setDebug("Error loading match: " + err.message);
       setMatchJson(null);
