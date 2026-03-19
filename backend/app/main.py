@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import requests
@@ -29,10 +29,10 @@ active_connections = {}
 # Run match: store JSON from frontend
 # ---------------------------------------------------------
 @app.post("/run-match/{match_id}")
-async def run_match(match_id: str, match: dict):
+async def run_match(match_id: str, match: dict = Body(...)):
     """
-    This endpoint MUST accept the match JSON.
-    If this signature is wrong, FastAPI returns 422.
+    Accept the entire JSON body as the match object.
+    This fixes the 422 Unprocessable Content error.
     """
     active_matches[match_id] = match
     active_connections[match_id] = []
@@ -96,7 +96,7 @@ async def ws_match(websocket: WebSocket, match_id: str):
             conns.remove(websocket)
 
 # ---------------------------------------------------------
-# Cricsheet loader (unchanged)
+# Cricsheet loader
 # ---------------------------------------------------------
 CRICSHEET_BASE = "https://cricsheet.org/downloads/"
 
