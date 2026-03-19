@@ -542,4 +542,199 @@ export default function Scoreboard({ matchId }) {
             })}
           </tbody>
         </table>
-     
+           </div>
+    );
+  };
+
+  const renderFOW = (fow) => {
+    if (!fow || fow.length === 0) return null;
+
+    return (
+      <div
+        style={{
+          background: "#ffffff",
+          padding: 16,
+          borderRadius: 8,
+          marginTop: 16,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          fontSize: 14,
+        }}
+      >
+        <h3 style={{ margin: 0, marginBottom: 12 }}>Fall of Wickets</h3>
+
+        {fow.map((w, idx) => (
+          <div key={idx} style={{ marginBottom: 4 }}>
+            {w.score}/{w.wicket} — {w.player} ({w.overStr})
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const inn1 = innings[1];
+  const inn2 = innings[2];
+
+  const inn1OversFloat = oversToFloat(inn1.over, inn1.ball);
+  const inn2OversFloat = oversToFloat(inn2.over, inn2.ball);
+
+  const inn1RR =
+    inn1OversFloat > 0 ? (inn1.runs / inn1OversFloat).toFixed(2) : "-";
+  const inn2RR =
+    inn2OversFloat > 0 ? (inn2.runs / inn2OversFloat).toFixed(2) : "-";
+
+  let rrr = "-";
+  if (target && maxOvers && inn2OversFloat < maxOvers) {
+    const remainingRuns = target - inn2.runs;
+    const remainingOvers = maxOvers - inn2OversFloat;
+    if (remainingRuns > 0 && remainingOvers > 0) {
+      rrr = (remainingRuns / remainingOvers).toFixed(2);
+    } else if (remainingRuns <= 0) {
+      rrr = "Achieved";
+    }
+  }
+
+  if (!matchId) {
+    return (
+      <div style={{ padding: 20, color: "white" }}>
+        No match selected.
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: 20, color: "white" }}>
+        <h2>Cricket Broadcast Engine</h2>
+        <p style={{ color: "red" }}>WebSocket error: {error}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        padding: 20,
+        maxWidth: 900,
+        margin: "0 auto",
+        fontFamily: "Inter, sans-serif",
+        background: "#f5f5f5",
+        minHeight: "100vh",
+      }}
+    >
+      {/* MATCH HEADER */}
+      <div
+        style={{
+          background: "#ffffff",
+          padding: 20,
+          borderRadius: 10,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          marginBottom: 20,
+        }}
+      >
+        <h2 style={{ margin: 0, marginBottom: 6 }}>
+          {matchInfo.eventName || "Match"}
+        </h2>
+
+        <div style={{ fontSize: 16, opacity: 0.8 }}>
+          {matchInfo.teamA} vs {matchInfo.teamB}
+        </div>
+
+        {matchInfo.tossWinner && (
+          <div style={{ marginTop: 6, fontSize: 14, opacity: 0.7 }}>
+            Toss: {matchInfo.tossWinner} won the toss and chose to{" "}
+            {matchInfo.tossDecision}
+          </div>
+        )}
+
+        <div style={{ marginTop: 6, fontSize: 14, opacity: 0.7 }}>
+          WebSocket:{" "}
+          <span style={{ color: connected ? "green" : "orange" }}>
+            {connected ? "Connected" : "Connecting..."}
+          </span>
+        </div>
+      </div>
+
+      {/* INNINGS 1 */}
+      <div
+        style={{
+          background: "#ffffff",
+          padding: 20,
+          borderRadius: 10,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          marginBottom: 20,
+        }}
+      >
+        <h2 style={{ margin: 0, marginBottom: 10 }}>
+          {inn1.team || "Team 1"} — {inn1.runs}/{inn1.wickets}{" "}
+          ({inn1.over}.{inn1.ball}) RR: {inn1RR}
+        </h2>
+
+        {renderBattersTable(inn1)}
+        {renderBowlersTable(inn1.bowlers)}
+        {renderFOW(inn1.fow)}
+      </div>
+
+      {/* INNINGS 2 */}
+      <div
+        style={{
+          background: "#ffffff",
+          padding: 20,
+          borderRadius: 10,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          marginBottom: 20,
+        }}
+      >
+        <h2 style={{ margin: 0, marginBottom: 10 }}>
+          {inn2.team || "Team 2"} — {inn2.runs}/{inn2.wickets}{" "}
+          ({inn2.over}.{inn2.ball}) RR: {inn2RR}
+        </h2>
+
+        {target && (
+          <div style={{ marginBottom: 10, fontSize: 15 }}>
+            Target: {target} | RRR: {rrr}
+          </div>
+        )}
+
+        {renderBattersTable(inn2)}
+        {renderBowlersTable(inn2.bowlers)}
+        {renderFOW(inn2.fow)}
+      </div>
+
+      {/* COMMENTARY */}
+      <div
+        style={{
+          background: "#ffffff",
+          padding: 20,
+          borderRadius: 10,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          marginBottom: 40,
+        }}
+      >
+        <h2 style={{ margin: 0, marginBottom: 12 }}>Commentary</h2>
+
+        <div
+          style={{
+            maxHeight: 400,
+            overflowY: "auto",
+            paddingRight: 10,
+          }}
+        >
+          {commentary.map((line, idx) => (
+            <div
+              key={idx}
+              style={{
+                marginBottom: 8,
+                paddingBottom: 8,
+                borderBottom: "1px solid #f0f0f0",
+                fontSize: 14,
+              }}
+            >
+              {line}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
