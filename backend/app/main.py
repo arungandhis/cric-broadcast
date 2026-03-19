@@ -30,6 +30,10 @@ active_connections = {}
 # ---------------------------------------------------------
 @app.post("/run-match/{match_id}")
 async def run_match(match_id: str, match: dict):
+    """
+    This endpoint MUST accept the match JSON.
+    If this signature is wrong, FastAPI returns 422.
+    """
     active_matches[match_id] = match
     active_connections[match_id] = []
     return {"status": "ready", "match_id": match_id}
