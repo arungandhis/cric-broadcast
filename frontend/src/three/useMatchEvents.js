@@ -1,53 +1,53 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
-export function useMatchEvents(matchId, onEvent) {
+export function useMatchEvents(wsUrl) {
+  // ⭐ Always return a safe default object
+  const [state, setState] = useState({
+    events: [],
+    connected: false,
+    error: null,
+  });
+
+  const wsRef = useRef(null);
+
   useEffect(() => {
-    if (!matchId) return;
+    if (!wsUrl) {
+      // No URL yet → keep defaults
+      return;
+    }
 
-    const ws = new WebSocket(
-      `wss://cric-broadcast-backed.onrender.com/ws/match/${matchId}`
-    );
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
 
-    ws.onopen = () => console.log("WS connected for match", matchId);
-
-    ws.onmessage = (msg) => {
-      console.log("WS raw message:", msg.data);
-
-      let event;
-      try {
-        event = JSON.parse(msg.data);
-      } catch (err) {
-        console.error("Failed to parse WS message:", err);
-        return;
-      }
-
-      // 🔥 Forward metadata
-      if (event.type === "meta") {
-        console.log("WS: Received metadata:", event);
-        try {
-          onEvent(event);
-        } catch (err) {
-          console.error("Error in onEvent handler (meta):", err);
-        }
-        return;
-      }
-
-      // 🔥 Forward ball events
-      if (event.type === "ball") {
-        try {
-          onEvent(event);
-        } catch (err) {
-          console.error("Error in onEvent handler (ball):", err);
-        }
-        return;
-      }
-
-      console.warn("WS: Unknown event type:", event);
+    ws.onopen = () => {
+      setState((s) => ({ ...s, connected: true, error: null }));
     };
 
-    ws.onclose = () => console.log("WS closed for match", matchId);
-    ws.onerror = (err) => console.error("WS error:", err);
+    ws.onmessage = (msg) => {
+      try {
+        const data = JSON.parse(msg.data);
+        setState((s) => ({
+          ...s,
+          events: [...s.events, data],
+        }));
+      } catch (err) {
+        console.error("WS parse error:", err);
+      }
+    };
 
-    return () => ws.close();
-  }, [matchId, onEvent]);
+    ws.onerror = (err) => {
+      console.error("WS error:", err);
+      setState((s) => ({ ...s, error: "WebSocket error", connected: false }));
+    };
+
+    ws.onclose = () => {
+      setState((s) => ({ ...s, connected: false }));
+    };
+
+    return () => {
+      if (wsRef.current) wsRef.current.close();
+    };
+  }, [wsUrl]);
+
+  return state;
 }
