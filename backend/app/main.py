@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Body
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import requests
@@ -22,8 +22,8 @@ app.add_middleware(
 # ---------------------------------------------------------
 # In‑memory match storage
 # ---------------------------------------------------------
-active_matches = {}
-active_connections = {}
+active_matches: dict[str, dict] = {}
+active_connections: dict[str, list[WebSocket]] = {}
 
 # ---------------------------------------------------------
 # Run match: store JSON from frontend
@@ -31,9 +31,16 @@ active_connections = {}
 @app.post("/run-match/{match_id}")
 async def run_match(match_id: str, match: dict = Body(...)):
     """
-    Accept the entire JSON body as the match object.
-    This fixes the 422 Unprocessable Content error.
+    Accept the entire Cricsheet JSON body as the match object.
+    Store it in memory keyed by match_id.
     """
+    if not isinstance(match, dict):
+        raise HTTPException(status_code=400, detail="Match payload must be a JSON object")
+
+    innings = match.get("innings", [])
+    if not innings:
+        raise HTTPException(status_code=400, detail="Match JSON has no innings")
+
     active_matches[match_id] = match
     active_connections[match_id] = []
     return {"status": "ready", "match_id": match_id}
@@ -51,9 +58,10 @@ async def ws_match(websocket: WebSocket, match_id: str):
         return
 
     match = active_matches[match_id]
-    active_connections[match_id].append(websocket)
+    active_connections.setdefault(match_id, []).append(websocket)
 
     try:
+        # ---- Send meta block first ----
         info = match.get("info", {})
         await websocket.send_json({
             "type": "meta",
@@ -62,34 +70,58 @@ async def ws_match(websocket: WebSocket, match_id: str):
             "toss": info.get("toss", {}),
         })
 
+        # ---- Cricsheet innings structure ----
         innings = match.get("innings", [])
+
         for inning_index, inning in enumerate(innings, start=1):
+            # inning is like { "1st innings": { ... } }
             inning_name = list(inning.keys())[0]
             inning_data = inning[inning_name]
-            deliveries = inning_data.get("deliveries", [])
 
-            for delivery in deliveries:
-                over_key = list(delivery.keys())[0]
-                event = delivery[over_key]
+            team_name = inning_data.get("team")
+            overs = inning_data.get("overs", [])
 
-                over_num, ball_num = map(int, over_key.split("."))
+            for over in overs:
+                # over looks like: { "over": 12, "deliveries": [ { "12.1": {...} }, ... ] }
+                deliveries = over.get("deliveries", [])
 
-                await websocket.send_json({
-                    "type": "ball",
-                    "inning": inning_index,
-                    "team": inning_name,
-                    "over": over_num,
-                    "ball": ball_num,
-                    "event": event,
-                })
+                for delivery in deliveries:
+                    # delivery is like { "12.1": { ...event... } }
+                    ball_key = list(delivery.keys())[0]
+                    event = delivery[ball_key]
 
-                await asyncio.sleep(0.35)
+                    # ball_key "12.1" → over_num=12, ball_num=1
+                    try:
+                        over_num, ball_num = map(int, ball_key.split("."))
+                    except Exception:
+                        over_num, ball_num = None, None
+
+                    await websocket.send_json({
+                        "type": "ball",
+                        "inning": inning_index,
+                        "inning_name": inning_name,
+                        "team": team_name,
+                        "over": over_num,
+                        "ball": ball_num,
+                        "ball_key": ball_key,
+                        "event": event,
+                    })
+
+                    # control playback speed
+                    await asyncio.sleep(0.35)
 
         await websocket.send_json({"type": "end"})
         await websocket.close()
 
     except WebSocketDisconnect:
         pass
+    except Exception as e:
+        # send error to this client only
+        try:
+            await websocket.send_json({"type": "error", "message": f"Server error: {str(e)}"})
+        except Exception:
+            pass
+        await websocket.close()
     finally:
         conns = active_connections.get(match_id, [])
         if websocket in conns:
@@ -106,9 +138,9 @@ FORMATS = {
     "tests": "tests_male_json.zip",
 }
 
-zip_cache = {}
+zip_cache: dict[str, zipfile.ZipFile] = {}
 
-def get_zip(format_key: str):
+def get_zip(format_key: str) -> zipfile.ZipFile:
     if format_key in zip_cache:
         return zip_cache[format_key]
 
@@ -125,7 +157,7 @@ def get_zip(format_key: str):
     zip_cache[format_key] = zipfile.ZipFile(io.BytesIO(r.content))
     return zip_cache[format_key]
 
-def is_real_world_cup(event_name: str):
+def is_real_world_cup(event_name: str) -> bool:
     if "World Cup" not in event_name:
         return False
 
@@ -164,7 +196,7 @@ def world_cup_index():
         except Exception:
             continue
 
-    matches.sort(key=lambda m: m["year"], reverse=True)
+    matches.sort(key=lambda m: m["year"] or 0, reverse=True)
     return {"world_cup": matches}
 
 @app.get("/cricsheet/{format}/{filename}")
@@ -176,6 +208,7 @@ def cricsheet_match(format: str, filename: str):
 
     try:
         with z.open(filename) as f:
-            return f.read().decode("utf-8")
+            # return parsed JSON so frontend gets an object, not a string
+            return json.load(f)
     except KeyError:
         raise HTTPException(404, "Match not found")
