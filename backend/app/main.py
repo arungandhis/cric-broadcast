@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 import requests
 import zipfile
 import io
+import json
 
 app = FastAPI()
 
@@ -15,6 +16,19 @@ FORMATS = {
 
 # Cache ZIPs in memory (RAM)
 zip_cache = {}
+
+WORLD_CUP_KEYWORDS = [
+    "World Cup",
+    "ICC Cricket World Cup",
+    "ICC Men's Cricket World Cup",
+    "Prudential World Cup",
+    "Reliance World Cup",
+    "Benson & Hedges World Cup",
+    "Wills World Cup"
+]
+
+def is_world_cup_event(name: str):
+    return any(keyword in name for keyword in WORLD_CUP_KEYWORDS)
 
 
 def get_zip(format_key: str):
@@ -37,16 +51,45 @@ def get_zip(format_key: str):
 
 
 @app.get("/cricsheet/index.json")
-def cricsheet_index():
-    """Return full list of match files directly from Cricsheet ZIPs."""
-    index = {}
+def world_cup_index():
+    """Return ONLY ICC Men's Cricket World Cup matches (1975 → 2023)."""
+    z = get_zip("odis")  # World Cup matches are all ODIs
 
-    for fmt, zip_name in FORMATS.items():
-        z = get_zip(fmt)
-        files = [f"{fmt}/{name}" for name in z.namelist() if name.endswith(".json")]
-        index[fmt] = files
+    matches = []
 
-    return index
+    for name in z.namelist():
+        if not name.endswith(".json"):
+            continue
+
+        try:
+            with z.open(name) as f:
+                data = json.load(f)
+
+            info = data.get("info", {})
+            event = info.get("event", {})
+            event_name = event.get("name", "")
+
+            # Skip non-World Cup matches
+            if not is_world_cup_event(event_name):
+                continue
+
+            teams = info.get("teams", [])
+            dates = info.get("dates", [])
+            year = int(str(dates[0])[0:4]) if dates else None
+
+            matches.append({
+                "file": f"odis/{name}",
+                "year": year,
+                "teams": teams
+            })
+
+        except Exception:
+            continue
+
+    # Sort newest → oldest
+    matches.sort(key=lambda m: m["year"], reverse=True)
+
+    return { "world_cup": matches }
 
 
 @app.get("/cricsheet/{format}/{filename}")
