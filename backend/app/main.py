@@ -195,3 +195,30 @@ def cricsheet_match(format: str, filename: str):
             return json.load(f)
     except KeyError:
         raise HTTPException(404, "Match not found")
+
+# ---------------------------------------------------------
+# Global scoreboard WebSocket: always sends latest match state
+# ---------------------------------------------------------
+@app.websocket("/ws")
+async def ws_scoreboard(websocket: WebSocket):
+    await websocket.accept()
+
+    try:
+        while True:
+            # Send all active matches (or choose one if needed)
+            await websocket.send_json({
+                "type": "scoreboard",
+                "matches": active_matches
+            })
+            await asyncio.sleep(0.5)
+
+    except WebSocketDisconnect:
+        pass
+
+    except Exception as e:
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+        await websocket.close()
+
