@@ -1,859 +1,616 @@
-// src/ui/Scoreboard.jsx
+import React, { useEffect, useState, useRef, useMemo } from "react";
+import "./Scoreboard.css";
 
-import React, { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
+/**
+ * Broadcast-grade Scoreboard
+ *
+ * - Multi-innings support
+ * - Match header with teams, venue, status
+ * - Current innings highlight
+ * - Batting + bowling tables
+ * - Fall of wickets
+ * - Over-by-over timeline
+ * - Recent events / commentary strip
+ * - Manhattan graph placeholder
+ * - Wagon wheel placeholder
+ * - Partnership summary
+ * - Responsive grid layout
+ * - WebSocket live updates with reconnect
+ */
 
-// Import the innings summary helper
-import { generateInningsSummary } from "../helpers/inningsSummary";
+const WS_URL_DEFAULT =
+  import.meta.env.VITE_WS_URL ||
+  "wss://cric-broadcast-backend.onrender.com/ws";
 
-function createEmptyInningsState() {
-  return {
-    team: null,
-    score: { runs: 0, wickets: 0, overs: 0, balls: 0 },
-    batters: {}, // name -> { runs, balls, fours, sixes, out }
-    bowlers: {}, // name -> { balls, runs, wickets },
-    fallOfWickets: [], // { score, over, player }
-    partnerships: [], // completed
-    currentPartnership: { runs: 0, batters: new Set() },
-    manhattan: [], // runs per over (index = over number)
-    worm: [], // cumulative runs per ball
-    overSummaries: [], // { over, runs, wickets, sequence }
-    timeline: [], // { over, ball, symbol }
-    commentary: [], // latest first
-  };
+function formatOvers(balls) {
+  if (balls === null || balls === undefined) return "-";
+  const o = Math.floor(balls / 6);
+  const b = balls % 6;
+  return `${o}.${b}`;
 }
 
-const formatOvers = (overs, balls) => `${overs}.${balls}`;
+function calcStrikeRate(runs, balls) {
+  if (!balls) return "0.0";
+  return ((runs / balls) * 100).toFixed(1);
+}
 
-const isLegalBall = (event) => {
-  const extras = event.extras || {};
-  if (extras.wides || extras.no_balls) return false;
-  return true;
-};
+function calcEconomy(runs, balls) {
+  if (!balls) return "0.0";
+  const overs = balls / 6;
+  if (!overs) return "0.0";
+  return (runs / overs).toFixed(1);
+}
 
-const computeRunRate = (score) => {
-  const totalBalls = score.overs * 6 + score.balls;
-  if (totalBalls === 0) return 0;
-  return (score.runs * 6) / totalBalls;
-};
+function safeNumber(n, fallback = 0) {
+  return typeof n === "number" && !Number.isNaN(n) ? n : fallback;
+}
 
-const computeProjected = (score, maxOvers) => {
-  const totalBalls = score.overs * 6 + score.balls;
-  if (totalBalls === 0) return null;
-  const maxBalls = maxOvers * 6;
-  const rr = computeRunRate(score);
-  const proj = (rr * maxBalls) / 6;
-  return Math.round(proj);
-};
+function formatExtras(extras) {
+  if (!extras) return "0 (b 0, lb 0, w 0, nb 0, p 0)";
+  const b = safeNumber(extras.b);
+  const lb = safeNumber(extras.lb);
+  const w = safeNumber(extras.w);
+  const nb = safeNumber(extras.nb);
+  const p = safeNumber(extras.p);
+  const total = safeNumber(extras.total, b + lb + w + nb + p);
+  return `${total} (b ${b}, lb ${lb}, w ${w}, nb ${nb}, p ${p})`;
+}
 
-// ------------------------------
-// COMMENTARY ENGINE
-// ------------------------------
-const generateCommentary = (
-  data,
-  prevRuns,
-  prevWickets,
-  batterStats,
-  bowlerStats,
-  partnershipRuns,
-  scoreAfter,
-  maxOvers,
-  target
-) => {
-  const { event, over, ball, team } = data;
-  const batter = event.batter;
-  const bowler = event.bowler;
+function formatFOWEntry(entry) {
+  if (!entry) return "";
+  const { score, wicket, over, batter } = entry;
+  return `${score}/${wicket} (${batter}, ${over})`;
+}
 
-  const runs = event.runs?.batter || 0;
-  const total = event.runs?.total || 0;
-  const extras = event.extras || {};
-  const wicket = event.wickets && event.wickets.length > 0 ? event.wickets[0] : null;
+function formatEventLabel(ev) {
+  if (!ev) return "";
+  const over = ev.over ?? "-";
+  const ball = ev.ball ?? "-";
+  const text = ev.text ?? "";
+  return `${over}.${ball} ${text}`;
+}
 
-  const newTotal = scoreAfter.runs;
-  const newWkts = scoreAfter.wickets;
+function formatMatchStatus(match) {
+  if (!match) return "";
+  if (match.result) return match.result;
+  if (match.status_text) return match.status_text;
+  if (match.is_live) return "Live";
+  return "Match in progress";
+}
 
-  const b = batterStats[batter] || { runs: 0, balls: 0, fours: 0, sixes: 0 };
-  const strikeRate = b.balls ? ((b.runs / b.balls) * 100).toFixed(1) : "0.0";
+function formatTeamName(team) {
+  if (!team) return "";
+  if (team.short_name) return team.short_name;
+  if (team.name) return team.name;
+  return String(team);
+}
 
-  const bw = bowlerStats[bowler] || { balls: 0, runs: 0, wickets: 0 };
-  const bwOvers = Math.floor(bw.balls / 6);
-  const bwBalls = bw.balls % 6;
-  const economy = bw.balls ? ((bw.runs * 6) / bw.balls).toFixed(2) : "0.00";
+function formatInningsLabel(inn) {
+  if (!inn) return "";
+  const team = inn.team || inn.batting_team || "Team";
+  const num = inn.innings_number || inn.number || "";
+  return `${team} Innings${num ? ` ${num}` : ""}`;
+}
 
-  const pRuns = partnershipRuns;
+function getCurrentInnings(innings) {
+  if (!innings || innings.length === 0) return null;
+  return innings[innings.length - 1];
+}
 
-  const totalBalls = scoreAfter.overs * 6 + scoreAfter.balls;
-  const crr = totalBalls ? (newTotal * 6) / totalBalls : 0;
+function buildManhattanData(innings) {
+  if (!innings || !innings.overs) return [];
+  return innings.overs.map((ov) => ({
+    over: ov.over_number,
+    runs: ov.runs,
+    wickets: ov.wickets,
+  }));
+}
 
-  let rrr = null;
-  let runsNeeded = null;
-  let ballsLeft = null;
+function buildPartnership(innings) {
+  if (!innings || !innings.partnership) return null;
+  return innings.partnership;
+}
 
-  if (target) {
-    const targetRuns = target.runs;
-    const maxBalls = target.overs * 6;
-    runsNeeded = targetRuns - newTotal;
-    ballsLeft = maxBalls - totalBalls;
-    if (runsNeeded > 0 && ballsLeft > 0) {
-      rrr = (runsNeeded * 6) / ballsLeft;
-    }
-  }
+function buildWagonWheelData(innings) {
+  if (!innings || !innings.wagon_wheel) return [];
+  return innings.wagon_wheel;
+}
 
-  const fmtRR = (v) => (v == null ? "-" : v.toFixed(2));
+function useWebSocketMatch(wsUrl) {
+  const [match, setMatch] = useState(null);
+  const [status, setStatus] = useState("Connecting…");
+  const wsRef = useRef(null);
+  const reconnectTimer = useRef(null);
 
-  let lines = [];
-
-  // Ball description
-  if (wicket) {
-    const kind = wicket.kind;
-    const outName = wicket.player_out;
-    lines.push(
-      `${over}.${ball} ${bowler} to ${batter} — OUT! ${outName} ${kind}!`,
-      `${team} now ${newTotal}/${newWkts}.`
-    );
-  } else if (extras.wides) {
-    lines.push(
-      `${over}.${ball} ${bowler} bowls a wide — ${extras.wides} run(s).`,
-      `Score: ${newTotal}/${newWkts}.`
-    );
-  } else if (extras.no_balls) {
-    lines.push(
-      `${over}.${ball} No-ball from ${bowler}! Free hit coming.`,
-      `Score: ${newTotal}/${newWkts}.`
-    );
-  } else if (runs === 0 && total === 0) {
-    lines.push(
-      `${over}.${ball} ${bowler} to ${batter} — dot ball.`,
-      `Score: ${newTotal}/${newWkts}.`
-    );
-  } else if (runs === 4) {
-    lines.push(
-      `${over}.${ball} ${bowler} to ${batter} — FOUR!`,
-      `Score: ${newTotal}/${newWkts}.`
-    );
-  } else if (runs === 6) {
-    lines.push(
-      `${over}.${ball} ${bowler} to ${batter} — SIX!`,
-      `Score: ${newTotal}/${newWkts}.`
-    );
-  } else {
-    lines.push(
-      `${over}.${ball} ${bowler} to ${batter} — ${total} run(s).`,
-      `Score: ${newTotal}/${newWkts}.`
-    );
-  }
-
-  // Batter line
-  lines.push(
-    `${batter}: ${b.runs}(${b.balls}) with ${b.fours}×4, ${b.sixes}×6 (SR ${strikeRate}).`
-  );
-
-  // Bowler line
-  lines.push(
-    `${bowler}: ${bwOvers}.${bwBalls} overs, ${bw.runs} runs, ${bw.wickets} wickets (Eco ${economy}).`
-  );
-
-  // Partnership
-  if (pRuns > 0) lines.push(`Partnership: ${pRuns} runs.`);
-
-  // Chase context
-  if (target && runsNeeded > 0 && ballsLeft > 0) {
-    lines.push(
-      `CRR ${fmtRR(crr)}, RRR ${fmtRR(rrr)} — ${runsNeeded} needed off ${ballsLeft} balls.`
-    );
-  }
-
-  // Milestones
-  if (!wicket) {
-    if (b.runs >= 50 && b.runs - runs < 50) lines.push(`${batter} brings up a fifty!`);
-    if (b.runs >= 100 && b.runs - runs < 100) lines.push(`${batter} reaches a hundred!`);
-  }
-
-  if (bw.wickets >= 3 && bw.wickets - (wicket ? 1 : 0) < 3)
-    lines.push(`${bowler} now has three wickets.`);
-  if (bw.wickets >= 5 && bw.wickets - (wicket ? 1 : 0) < 5)
-    lines.push(`${bowler} completes a five‑wicket haul!`);
-
-  const isOverEnd = ball === 6 || scoreAfter.balls === 0;
-  if (isOverEnd) {
-    lines.push(
-      `End of over ${over}. ${team} ${newTotal}/${newWkts} (RR ${fmtRR(crr)}).`
-    );
-  }
-
-  return lines.join("\n");
-};
-
-// ------------------------------
-// MATCH SUMMARY
-// ------------------------------
-const getTopBatter = (inn) => {
-  const entries = Object.entries(inn.batters);
-  if (!entries.length) return "No batting data";
-  const sorted = entries.sort((a, b) => b[1].runs - a[1].runs);
-  const [name, stats] = sorted[0];
-  return `${name} ${stats.runs}(${stats.balls})`;
-};
-
-const getTopBowler = (inn1, inn2) => {
-  const bowlers = [
-    ...Object.entries(inn1.bowlers),
-    ...Object.entries(inn2.bowlers),
-  ];
-  if (!bowlers.length) return "No bowling data";
-  const sorted = bowlers.sort((a, b) => b[1].wickets - a[1].wickets);
-  const [name, stats] = sorted[0];
-  return `${name} ${stats.wickets} wickets`;
-};
-
-const generateMatchSummary = (innings) => {
-  const inn1 = innings[1];
-  const inn2 = innings[2];
-
-  if (!inn1.team || inn1.score.runs === 0) return null;
-
-  const team1 = inn1.team;
-  const team2 = inn2.team || "Second team";
-
-  const score1 = `${inn1.score.runs}/${inn1.score.wickets} (${inn1.score.overs}.${inn1.score.balls})`;
-  const score2 = inn2.score.runs
-    ? `${inn2.score.runs}/${inn2.score.wickets} (${inn2.score.overs}.${inn2.score.balls})`
-    : null;
-
-  let result = "";
-
-  if (!score2) {
-    result = `${team1} scored ${score1}. Second innings not played.`;
-  } else {
-    if (inn2.score.runs > inn1.score.runs) {
-      const wicketsLeft = 10 - inn2.score.wickets;
-      result = `${team2} won by ${wicketsLeft} wicket(s).`;
-    } else if (inn2.score.runs < inn1.score.runs) {
-      const runsShort = inn1.score.runs - inn2.score.runs;
-      result = `${team1} won by ${runsShort} runs.`;
-    } else {
-      result = `Match tied.`;
-    }
-  }
-
-  return [
-    "🏁 MATCH SUMMARY",
-    "",
-    `${team1}: ${score1}`,
-    `${team2}: ${score2 || "Did not bat"}`,
-    "",
-    `Result: ${result}`,
-    "",
-    "Top Performers:",
-    `• ${team1} batting: ${getTopBatter(inn1)}`,
-    `• ${team2} batting: ${getTopBatter(inn2)}`,
-    `• Best bowler: ${getTopBowler(inn1, inn2)}`,
-  ].join("\n");
-};
-
-// ------------------------------
-// MAIN COMPONENT
-// ------------------------------
-export default function Scoreboard() {
-  const location = useLocation();
-  const params = new URLSearchParams(location.search);
-  const matchId = params.get("matchId");
-
-  const [meta, setMeta] = useState(null);
-  const [status, setStatus] = useState("connecting");
-
-  const [innings, setInnings] = useState({
-    1: createEmptyInningsState(),
-    2: createEmptyInningsState(),
-  });
-
-  // ------------------------------
-  // WEBSOCKET SETUP
-  // ------------------------------
   useEffect(() => {
-    if (!matchId) {
-      setStatus("no-match-id");
-      return;
+    function connect() {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setStatus("Connected");
+        // console.log("[WS] Connected");
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+          setMatch(data);
+        } catch (err) {
+          console.error("[WS] parse error:", err);
+        }
+      };
+
+      ws.onclose = () => {
+        setStatus("Disconnected — reconnecting…");
+        // console.log("[WS] Disconnected, reconnecting in 3s…");
+        reconnectTimer.current = setTimeout(() => {
+          connect();
+        }, 3000);
+      };
+
+      ws.onerror = (err) => {
+        console.error("[WS] Error:", err);
+        ws.close();
+      };
     }
 
-    const wsUrl = `${import.meta.env.VITE_WS_URL}/ws/match/${matchId}`;
-    const ws = new WebSocket(wsUrl);
+    connect();
 
-    ws.onopen = () => setStatus("connected");
+    return () => {
+      if (wsRef.current) wsRef.current.close();
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+    };
+  }, [wsUrl]);
 
-    ws.onmessage = (msg) => {
-      const data = JSON.parse(msg.data);
+  return { match, status };
+}
 
-      // META
-      if (data.type === "meta") {
-        setMeta(data);
+/* ------------------------------
+ * Subcomponents
+ * ------------------------------ */
 
-      // BALL EVENT
-      } else if (data.type === "ball") {
-        const inn = data.inning || 1;
-        const teamName = data.team;
+function MatchHeader({ match, connectionStatus }) {
+  if (!match) return null;
 
-        setInnings((prev) => {
-          const next = {
-            1: { ...prev[1] },
-            2: { ...prev[2] },
-          };
-          const state = next[inn];
+  const title = match.match_title || "Live Cricket Match";
+  const venue = match.venue || "";
+  const status = formatMatchStatus(match);
 
-          // Deep copy nested structures
-          state.score = { ...state.score };
-          state.batters = { ...state.batters };
-          state.bowlers = { ...state.bowlers };
-          state.currentPartnership = {
-            ...state.currentPartnership,
-            batters: new Set(state.currentPartnership.batters),
-          };
-          state.manhattan = [...state.manhattan];
-          state.worm = [...state.worm];
-          state.fallOfWickets = [...state.fallOfWickets];
-          state.partnerships = [...state.partnerships];
-          state.overSummaries = [...state.overSummaries];
-          state.timeline = [...state.timeline];
-          state.commentary = [...state.commentary];
+  const teamA = match.team_a || match.teams?.[0];
+  const teamB = match.team_b || match.teams?.[1];
 
-          if (!state.team) state.team = teamName;
-
-          const event = data.event;
-          const totalRuns = event.runs?.total || 0;
-          const batterName = event.batter;
-          const bowlerName = event.bowler;
-          const wicketArr = event.wickets || [];
-          const isWicket = wicketArr.length > 0;
-          const extras = event.extras || {};
-          const legal = isLegalBall(event);
-
-          // ------------------------------
-          // EXTRAS ENGINE
-          // ------------------------------
-          const batterRuns = event.runs?.batter || 0;
-          const byeRuns = extras.byes || 0;
-          const legbyeRuns = extras.legbyes || 0;
-          const wideRuns = extras.wides || 0;
-          const noballRuns = extras.no_balls || 0;
-          const penaltyRuns = extras.penalty || 0;
-
-          const extrasFromRuns =
-            event.runs?.extras != null
-              ? event.runs.extras
-              : totalRuns - batterRuns;
-
-          const knownExtras =
-            byeRuns + legbyeRuns + wideRuns + noballRuns + penaltyRuns;
-
-          const overthrowRuns = Math.max(0, extrasFromRuns - knownExtras);
-
-          const bowlerConceded =
-            batterRuns + wideRuns + noballRuns + overthrowRuns;
-
-          const prevRuns = state.score.runs;
-          const prevWickets = state.score.wickets;
-
-          // ------------------------------
-          // SCORE UPDATE
-          // ------------------------------
-          state.score.runs += totalRuns;
-          if (isWicket) state.score.wickets += wicketArr.length;
-          if (legal) {
-            state.score.balls += 1;
-            if (state.score.balls === 6) {
-              state.score.overs += 1;
-              state.score.balls = 0;
-            }
-          }
-
-          // ------------------------------
-          // BATTERS
-          // ------------------------------
-          if (!state.batters[batterName]) {
-            state.batters[batterName] = {
-              runs: 0,
-              balls: 0,
-              fours: 0,
-              sixes: 0,
-              out: false,
-            };
-          }
-          const b = state.batters[batterName];
-          b.runs += batterRuns;
-          if (legal) b.balls += 1;
-          if (batterRuns === 4) b.fours += 1;
-          if (batterRuns === 6) b.sixes += 1;
-          if (isWicket && wicketArr[0].player_out === batterName) b.out = true;
-
-          // ------------------------------
-          // BOWLERS
-          // ------------------------------
-          if (!state.bowlers[bowlerName]) {
-            state.bowlers[bowlerName] = { balls: 0, runs: 0, wickets: 0 };
-          }
-          const bw = state.bowlers[bowlerName];
-          bw.runs += bowlerConceded;
-          if (legal) bw.balls += 1;
-          if (isWicket) bw.wickets += wicketArr.length;
-
-          // ------------------------------
-          // FALL OF WICKETS
-          // ------------------------------
-          if (isWicket) {
-            const overStr = `${data.over}.${data.ball}`;
-            const player = wicketArr[0].player_out;
-            const totalAfter = prevRuns + totalRuns;
-            const wicketNumber = prevWickets + 1;
-            state.fallOfWickets.push({
-              score: `${totalAfter}/${wicketNumber}`,
-              over: overStr,
-              player,
-            });
-          }
-
-          // ------------------------------
-          // PARTNERSHIPS
-          // ------------------------------
-          state.currentPartnership.runs += totalRuns;
-          state.currentPartnership.batters.add(batterName);
-          if (isWicket) {
-            state.partnerships.push({
-              runs: state.currentPartnership.runs,
-              batters: Array.from(state.currentPartnership.batters),
-            });
-            state.currentPartnership = {
-              runs: 0,
-              batters: new Set(),
-            };
-          }
-
-          // ------------------------------
-          // MANHATTAN
-          // ------------------------------
-          const overIdx = Math.floor(data.over);
-          if (state.manhattan[overIdx] == null) state.manhattan[overIdx] = 0;
-          state.manhattan[overIdx] += totalRuns;
-
-          // ------------------------------
-          // WORM
-          // ------------------------------
-          const lastCum = state.worm.length
-            ? state.worm[state.worm.length - 1]
-            : 0;
-          state.worm.push(lastCum + totalRuns);
-
-          // ------------------------------
-          // OVER SUMMARIES
-          // ------------------------------
-          if (!state.overSummaries[overIdx]) {
-            state.overSummaries[overIdx] = {
-              over: overIdx,
-              runs: 0,
-              wickets: 0,
-              sequence: [],
-            };
-          }
-          const os = state.overSummaries[overIdx];
-          os.runs += totalRuns;
-          if (isWicket) os.wickets += wicketArr.length;
-
-          let seqSymbol = "";
-          if (isWicket) seqSymbol = "W";
-          else if (wideRuns) seqSymbol = `${wideRuns}wd`;
-          else if (noballRuns) seqSymbol = `${batterRuns}+nb`;
-          else if (batterRuns === 0 && totalRuns === 0) seqSymbol = ".";
-          else seqSymbol = String(totalRuns);
-  // ------------------------------
-  // RENDERING HELPERS
-  // ------------------------------
-
-  const renderManhattan = (state) => {
-    const arr = state.manhattan;
-    if (!arr.length) return null;
-
-    const filtered = arr.filter((v) => v != null);
-    if (!filtered.length) return null;
-
-    const max = Math.max(...filtered);
-    if (!max) return null;
-
-    return (
-      <div style={{ marginTop: 10 }}>
-        <div>Manhattan (runs per over)</div>
-        <div style={{ display: "flex", gap: 4, alignItems: "flex-end" }}>
-          {arr.map((runs, i) => {
-            if (runs == null) {
-              return (
-                <div key={i} style={{ width: 10, height: 2, background: "#333" }} />
-              );
-            }
-            const height = (runs / max) * 60;
-            return (
-              <div key={i} style={{ textAlign: "center" }}>
-                <div
-                  style={{
-                    width: 12,
-                    height,
-                    background: "#4caf50",
-                  }}
-                />
-                <div style={{ fontSize: 10 }}>{i}</div>
-              </div>
-            );
-          })}
+  return (
+    <header className="sb-header">
+      <div className="sb-header-main">
+        <div className="sb-header-title-block">
+          <h1 className="sb-match-title">{title}</h1>
+          {venue && <div className="sb-match-venue">{venue}</div>}
+          <div className="sb-match-status">{status}</div>
+        </div>
+        <div className="sb-header-teams">
+          <div className="sb-team-block">
+            <div className="sb-team-badge sb-team-badge-left">
+              {formatTeamName(teamA)}
+            </div>
+          </div>
+          <div className="sb-vs">vs</div>
+          <div className="sb-team-block">
+            <div className="sb-team-badge sb-team-badge-right">
+              {formatTeamName(teamB)}
+            </div>
+          </div>
         </div>
       </div>
-    );
-  };
+      <div className="sb-header-connection">
+        <span className="sb-connection-dot" />
+        <span className="sb-connection-text">{connectionStatus}</span>
+      </div>
+    </header>
+  );
+}
 
-  const renderWorm = (state) => {
-    const arr = state.worm;
-    if (!arr.length) return null;
+function CurrentInningsStrip({ innings }) {
+  if (!innings) return null;
 
-    const max = Math.max(...arr);
-    if (!max) return null;
+  const runs = safeNumber(innings.runs);
+  const wickets = safeNumber(innings.wickets);
+  const balls = safeNumber(innings.balls);
+  const target = innings.target;
+  const rr = innings.run_rate;
+  const req_rr = innings.required_run_rate;
 
-    return (
-      <div style={{ marginTop: 10 }}>
-        <div>Worm (cumulative runs)</div>
-        <div style={{ display: "flex", gap: 2, alignItems: "flex-end" }}>
-          {arr.map((val, i) => {
-            const height = (val / max) * 60;
-            return (
-              <div key={i} style={{ textAlign: "center" }}>
-                <div
-                  style={{
-                    width: 4,
-                    height,
-                    background: "#ff9800",
-                  }}
-                />
-              </div>
-            );
-          })}
+  return (
+    <section className="sb-current-innings-strip">
+      <div className="sb-current-score">
+        <span className="sb-current-team">
+          {innings.team || innings.batting_team || "Batting"}
+        </span>
+        <span className="sb-current-runs">
+          {runs}/{wickets}
+        </span>
+        <span className="sb-current-overs">
+          ({formatOvers(balls)} ov)
+        </span>
+      </div>
+      <div className="sb-current-meta">
+        {typeof target === "number" && (
+          <span className="sb-current-target">Target: {target}</span>
+        )}
+        {typeof rr === "number" && (
+          <span className="sb-current-rr">CRR: {rr.toFixed(2)}</span>
+        )}
+        {typeof req_rr === "number" && (
+          <span className="sb-current-rr">Req RR: {req_rr.toFixed(2)}</span>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function BattingTable({ innings }) {
+  const batting = innings?.batting || [];
+
+  return (
+    <section className="sb-card sb-batting-card">
+      <div className="sb-card-header">
+        <h3>Batting</h3>
+      </div>
+      <div className="sb-card-body">
+        <table className="sb-table sb-table-batting">
+          <thead>
+            <tr>
+              <th>Batter</th>
+              <th>Status</th>
+              <th>R</th>
+              <th>B</th>
+              <th>4s</th>
+              <th>6s</th>
+              <th>SR</th>
+            </tr>
+          </thead>
+          <tbody>
+            {batting.map((b, idx) => (
+              <tr key={idx}>
+                <td className="sb-batter-name">{b.name}</td>
+                <td className="sb-batter-status">{b.status}</td>
+                <td>{safeNumber(b.runs)}</td>
+                <td>{safeNumber(b.balls)}</td>
+                <td>{safeNumber(b.fours)}</td>
+                <td>{safeNumber(b.sixes)}</td>
+                <td>{calcStrikeRate(b.runs, b.balls)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="sb-extras-line">
+          Extras: {formatExtras(innings?.extras)}
+        </div>
+        <div className="sb-total-line">
+          Total: {safeNumber(innings?.runs)}/{safeNumber(innings?.wickets)} (
+          {formatOvers(innings?.balls)} ov)
         </div>
       </div>
-    );
-  };
+    </section>
+  );
+}
 
-  const renderOverSummaries = (state) => {
-    const arr = state.overSummaries;
-    if (!arr.length) return null;
+function BowlingTable({ innings }) {
+  const bowling = innings?.bowling || [];
 
-    return (
-      <div style={{ marginTop: 20 }}>
-        <h4>Over summaries</h4>
-        <div style={{ fontSize: 14 }}>
-          {arr.map((os, idx) => {
-            if (!os) return null;
-            return (
-              <div key={idx}>
-                Over {os.over}: {os.runs} runs, {os.wickets} wkts —{" "}
-                {os.sequence.join(" ")}
-              </div>
-            );
-          })}
-        </div>
+  return (
+    <section className="sb-card sb-bowling-card">
+      <div className="sb-card-header">
+        <h3>Bowling</h3>
       </div>
-    );
-  };
+      <div className="sb-card-body">
+        <table className="sb-table sb-table-bowling">
+          <thead>
+            <tr>
+              <th>Bowler</th>
+              <th>O</th>
+              <th>M</th>
+              <th>R</th>
+              <th>W</th>
+              <th>Econ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {bowling.map((bw, idx) => (
+              <tr key={idx}>
+                <td className="sb-bowler-name">{bw.name}</td>
+                <td>{formatOvers(bw.balls)}</td>
+                <td>{safeNumber(bw.maidens)}</td>
+                <td>{safeNumber(bw.runs)}</td>
+                <td>{safeNumber(bw.wickets)}</td>
+                <td>{calcEconomy(bw.runs, bw.balls)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
 
-  const renderTimeline = (state) => {
-    const arr = state.timeline;
-    if (!arr.length) return null;
+function FallOfWickets({ innings }) {
+  const fow = innings?.fall_of_wickets || innings?.fow || [];
 
-    return (
-      <div style={{ marginTop: 20 }}>
-        <h4>Timeline</h4>
-        <div style={{ fontSize: 12, display: "flex", flexWrap: "wrap", gap: 4 }}>
-          {arr.map((t, idx) => (
-            <span key={idx}>
-              {t.over}.{t.ball}:{t.symbol}
-            </span>
+  if (!fow.length) return null;
+
+  return (
+    <section className="sb-card sb-fow-card">
+      <div className="sb-card-header">
+        <h3>Fall of wickets</h3>
+      </div>
+      <div className="sb-card-body sb-fow-body">
+        {fow.map((entry, idx) => (
+          <div key={idx} className="sb-fow-entry">
+            {formatFOWEntry(entry)}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function OversTimeline({ innings }) {
+  const overs = innings?.overs || [];
+
+  if (!overs.length) return null;
+
+  return (
+    <section className="sb-card sb-overs-card">
+      <div className="sb-card-header">
+        <h3>Over by over</h3>
+      </div>
+      <div className="sb-card-body sb-overs-body">
+        <div className="sb-overs-list">
+          {overs.map((ov, idx) => (
+            <div key={idx} className="sb-over-pill">
+              <div className="sb-over-number">Over {ov.over_number}</div>
+              <div className="sb-over-runs">
+                {ov.runs} runs{ov.wickets ? `, ${ov.wickets} wkts` : ""}
+              </div>
+              <div className="sb-over-balls">
+                {(ov.balls || []).map((b, i) => (
+                  <span
+                    key={i}
+                    className={`sb-ball-pill sb-ball-${(b.result || "")
+                      .toString()
+                      .toLowerCase()}`}
+                  >
+                    {b.result}
+                  </span>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       </div>
-    );
-  };
+    </section>
+  );
+}
 
-  // ------------------------------
-  // INNINGS BLOCK
-  // ------------------------------
-  const renderInningsBlock = (innNumber) => {
-    const state = innings[innNumber];
-    const score = state.score;
+function RecentEvents({ match }) {
+  const events = match?.events || [];
+  if (!events.length) return null;
 
-    const rr = computeRunRate(score);
-    const proj = computeProjected(score, maxOvers);
+  const recent = events.slice(-8).reverse();
 
-    const hasData =
-      score.runs > 0 ||
-      score.wickets > 0 ||
-      Object.keys(state.batters).length > 0 ||
-      Object.keys(state.bowlers).length > 0;
-
-    if (!hasData) return null;
-
-    return (
-      <div
-        key={innNumber}
-        style={{
-          marginTop: 30,
-          padding: 16,
-          borderRadius: 8,
-          border: "1px solid #444",
-          background: "#111",
-        }}
-      >
-        <h3>
-          Innings {innNumber}: {state.team || "Unknown team"}
-        </h3>
-
-        <div style={{ marginTop: 10, fontSize: 24 }}>
-          <strong>
-            {score.runs}/{score.wickets}
-          </strong>{" "}
-          ({formatOvers(score.overs, score.balls)})
-        </div>
-
-        <div style={{ marginTop: 4 }}>
-          <span>Run rate: {rr.toFixed(2)}</span>
-          {proj != null && <span style={{ marginLeft: 12 }}>Proj: {proj}</span>}
-        </div>
-
-        {/* ------------------------------
-            BATTING TABLE
-        ------------------------------ */}
-        <div style={{ marginTop: 16 }}>
-          <h4>Batting</h4>
-          <table
-            style={{ width: "100%", fontSize: 14, borderCollapse: "collapse" }}
-          >
-            <thead>
-              <tr>
-                <th align="left">Batter</th>
-                <th>R</th>
-                <th>B</th>
-                <th>4s</th>
-                <th>6s</th>
-                <th>SR</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(state.batters).map(([name, b]) => {
-                const sr = b.balls ? ((b.runs / b.balls) * 100).toFixed(1) : "-";
-                return (
-                  <tr key={name}>
-                    <td align="left">
-                      {name} {b.out ? "" : "*"}
-                    </td>
-                    <td align="center">{b.runs}</td>
-                    <td align="center">{b.balls}</td>
-                    <td align="center">{b.fours}</td>
-                    <td align="center">{b.sixes}</td>
-                    <td align="center">{sr}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ------------------------------
-            BOWLING TABLE
-        ------------------------------ */}
-        <div style={{ marginTop: 16 }}>
-          <h4>Bowling</h4>
-          <table
-            style={{ width: "100%", fontSize: 14, borderCollapse: "collapse" }}
-          >
-            <thead>
-              <tr>
-                <th align="left">Bowler</th>
-                <th>O</th>
-                <th>R</th>
-                <th>W</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(state.bowlers).map(([name, bw]) => {
-                if (!bw.balls) return null;
-                const overs = Math.floor(bw.balls / 6);
-                const balls = bw.balls % 6;
-                return (
-                  <tr key={name}>
-                    <td align="left">{name}</td>
-                    <td align="center">{formatOvers(overs, balls)}</td>
-                    <td align="center">{bw.runs}</td>
-                    <td align="center">{bw.wickets}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ------------------------------
-            FALL OF WICKETS
-        ------------------------------ */}
-        {state.fallOfWickets.length > 0 && (
-          <div style={{ marginTop: 16 }}>
-            <h4>Fall of wickets</h4>
-            <div style={{ fontSize: 14 }}>
-              {state.fallOfWickets.map((f, idx) => (
-                <div key={idx}>
-                  {idx + 1}. {f.score} ({f.player}, {f.over})
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ------------------------------
-            PARTNERSHIPS
-        ------------------------------ */}
-        {(state.partnerships.length > 0 ||
-          state.currentPartnership.runs > 0) && (
-          <div style={{ marginTop: 16 }}>
-            <h4>Partnerships</h4>
-            <div style={{ fontSize: 14 }}>
-              {state.partnerships.map((p, idx) => (
-                <div key={idx}>
-                  {p.runs} runs between {p.batters.join(" & ")}
-                </div>
-              ))}
-              {state.currentPartnership.runs > 0 && (
-                <div>
-                  {state.currentPartnership.runs}* runs between{" "}
-                  {Array.from(state.currentPartnership.batters).join(" & ")}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ------------------------------
-            MANHATTAN / WORM / OVERS / TIMELINE
-        ------------------------------ */}
-        {renderManhattan(state)}
-        {renderWorm(state)}
-        {renderOverSummaries(state)}
-        {renderTimeline(state)}
-
-        {/* ------------------------------
-            INNINGS SUMMARY (NEW)
-        ------------------------------ */}
-        {(() => {
-          const summary = generateInningsSummary(state, innNumber);
-          if (!summary) return null;
-
-          return (
-            <div
-              style={{
-                marginTop: 20,
-                padding: 12,
-                borderRadius: 6,
-                border: "1px solid #555",
-                background: "#1a1a1a",
-                whiteSpace: "pre-line",
-              }}
-            >
-              <h4>Innings Summary</h4>
-              {summary}
-            </div>
-          );
-        })()}
-
-        {/* ------------------------------
-            COMMENTARY
-        ------------------------------ */}
-        {state.commentary.length > 0 && (
-          <div style={{ marginTop: 16 }}>
-            <h4>Commentary</h4>
-            <div style={{ fontSize: 14, whiteSpace: "pre-line" }}>
-              {state.commentary.map((line, idx) => (
-                <div key={idx} style={{ marginBottom: 8 }}>
-                  {line}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-  // ------------------------------
-  // FINAL JSX RETURN
-  // ------------------------------
   return (
-    <div style={{ padding: 20, color: "white", fontFamily: "system-ui" }}>
-      <h2>Cricket Broadcast Engine</h2>
-
-      <div>Status: {status}</div>
-      <div>Match ID: {matchId || "None"}</div>
-
-      {/* ------------------------------
-          META INFORMATION
-      ------------------------------ */}
-      {meta && (
-        <div style={{ marginTop: 10 }}>
-          <div>
-            <strong>{meta.teams?.join(" vs ")}</strong>
-          </div>
-
-          {meta.event && (
-            <div>
-              {meta.event.name}
-              {meta.event.stage ? ` — ${meta.event.stage}` : ""}
-              {meta.event.group ? ` — ${meta.event.group}` : ""}
-              {meta.event.match_number ? ` (#${meta.event.match_number})` : ""}
-            </div>
-          )}
-
-          {meta.toss && (
-            <div>
-              Toss: {meta.toss.winner} chose to {meta.toss.decision}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ------------------------------
-          INNINGS 1 + INNINGS 2
-      ------------------------------ */}
-      {renderInningsBlock(1)}
-      {renderInningsBlock(2)}
-
-      {/* ------------------------------
-          MATCH SUMMARY BLOCK
-      ------------------------------ */}
-      {(() => {
-        const matchSummary = generateMatchSummary(innings);
-        if (!matchSummary) return null;
-
-        return (
-          <div
-            style={{
-              marginTop: 30,
-              padding: 16,
-              borderRadius: 8,
-              border: "1px solid #555",
-              background: "#222",
-              whiteSpace: "pre-line",
-            }}
-          >
-            <h3>Match Result</h3>
-            {matchSummary}
-          </div>
-        );
-      })()}
-
-      {/* ------------------------------
-          FOOTER
-      ------------------------------ */}
-      <div style={{ marginTop: 20, fontSize: 12, color: "#aaa" }}>
-        Wagon wheel requires shot direction/angle data, which is not present in Cricsheet JSON.
+    <section className="sb-card sb-events-card">
+      <div className="sb-card-header">
+        <h3>Recent</h3>
       </div>
+      <div className="sb-card-body sb-events-body">
+        <ul className="sb-events-list">
+          {recent.map((ev, idx) => (
+            <li key={idx} className="sb-event-item">
+              <span className="sb-event-over">
+                {ev.over}.{ev.ball}
+              </span>
+              <span className="sb-event-text">{ev.text}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function CommentaryStrip({ match }) {
+  const events = match?.events || [];
+  if (!events.length) {
+    return (
+      <div className="sb-commentary-strip sb-commentary-empty">
+        Waiting for commentary…
+      </div>
+    );
+  }
+
+  const last = events[events.length - 1];
+  const label = formatEventLabel(last);
+
+  return (
+    <div className="sb-commentary-strip">
+      <div className="sb-commentary-pulse" />
+      <div className="sb-commentary-label">Live</div>
+      <div className="sb-commentary-text">{label}</div>
+    </div>
+  );
+}
+
+function ManhattanGraph({ innings }) {
+  const data = useMemo(() => buildManhattanData(innings), [innings]);
+
+  if (!data.length) {
+    return (
+      <section className="sb-card sb-manhattan-card">
+        <div className="sb-card-header">
+          <h3>Manhattan</h3>
+        </div>
+        <div className="sb-card-body sb-manhattan-body sb-manhattan-empty">
+          Manhattan graph will appear here.
+        </div>
+      </section>
+    );
+  }
+
+  const maxRuns = Math.max(...data.map((d) => d.runs), 1);
+
+  return (
+    <section className="sb-card sb-manhattan-card">
+      <div className="sb-card-header">
+        <h3>Manhattan</h3>
+      </div>
+      <div className="sb-card-body sb-manhattan-body">
+        <div className="sb-manhattan-bars">
+          {data.map((d, idx) => {
+            const height = (d.runs / maxRuns) * 100;
+            return (
+              <div key={idx} className="sb-manhattan-bar-wrapper">
+                <div
+                  className="sb-manhattan-bar"
+                  style={{ height: `${height}%` }}
+                  title={`Over ${d.over}: ${d.runs} runs`}
+                />
+                <div className="sb-manhattan-over-label">{d.over}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WagonWheel({ innings }) {
+  const data = useMemo(() => buildWagonWheelData(innings), [innings]);
+
+  return (
+    <section className="sb-card sb-wagon-card">
+      <div className="sb-card-header">
+        <h3>Wagon wheel</h3>
+      </div>
+      <div className="sb-card-body sb-wagon-body">
+        <div className="sb-wagon-placeholder">
+          {data.length === 0
+            ? "Wagon wheel will appear here."
+            : "Wagon wheel data available (rendering not implemented)."}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PartnershipCard({ innings }) {
+  const partnership = useMemo(() => buildPartnership(innings), [innings]);
+
+  if (!partnership) return null;
+
+  const { runs, balls, batters } = partnership;
+
+  return (
+    <section className="sb-card sb-partnership-card">
+      <div className="sb-card-header">
+        <h3>Partnership</h3>
+      </div>
+      <div className="sb-card-body sb-partnership-body">
+        <div className="sb-partnership-main">
+          <div className="sb-partnership-runs">
+            {runs} ({balls} balls)
+          </div>
+          <div className="sb-partnership-batters">
+            {(batters || []).map((b, idx) => (
+              <div key={idx} className="sb-partnership-batter">
+                <div className="sb-partnership-batter-name">{b.name}</div>
+                <div className="sb-partnership-batter-stats">
+                  {b.runs} ({b.balls})
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AllInningsSummary({ innings }) {
+  if (!innings || innings.length === 0) return null;
+
+  return (
+    <section className="sb-card sb-innings-summary-card">
+      <div className="sb-card-header">
+        <h3>Innings summary</h3>
+      </div>
+      <div className="sb-card-body sb-innings-summary-body">
+        {innings.map((inn, idx) => (
+          <div key={idx} className="sb-innings-summary-row">
+            <div className="sb-innings-summary-label">
+              {formatInningsLabel(inn)}
+            </div>
+            <div className="sb-innings-summary-score">
+              {safeNumber(inn.runs)}/{safeNumber(inn.wickets)} (
+              {formatOvers(inn.balls)} ov)
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------
+ * Main Scoreboard Component
+ * ------------------------------ */
+
+export default function Scoreboard() {
+  const { match, status } = useWebSocketMatch(WS_URL_DEFAULT);
+
+  const innings = match?.innings || [];
+  const currentInnings = getCurrentInnings(innings);
+
+  if (!match) {
+    return (
+      <div className="sb-root sb-root-loading">
+        <div className="sb-loading-card">
+          <h2>Loading match…</h2>
+          <p>{status}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="sb-root">
+      <MatchHeader match={match} connectionStatus={status} />
+
+      <CommentaryStrip match={match} />
+
+      <CurrentInningsStrip innings={currentInnings} />
+
+      <main className="sb-layout">
+        <div className="sb-layout-main">
+          <BattingTable innings={currentInnings} />
+          <BowlingTable innings={currentInnings} />
+          <FallOfWickets innings={currentInnings} />
+          <OversTimeline innings={currentInnings} />
+        </div>
+
+        <aside className="sb-layout-side">
+          <AllInningsSummary innings={innings} />
+          <PartnershipCard innings={currentInnings} />
+          <ManhattanGraph innings={currentInnings} />
+          <WagonWheel innings={currentInnings} />
+          <RecentEvents match={match} />
+        </aside>
+      </main>
     </div>
   );
 }
