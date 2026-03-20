@@ -6,11 +6,11 @@ function createEmptyInningsState() {
     team: null,
     score: { runs: 0, wickets: 0, overs: 0, balls: 0 },
     batters: {}, // name -> { runs, balls, fours, sixes, out }
-    bowlers: {}, // name -> { balls, runs, wickets }
+    bowlers: {}, // name -> { balls, runs, wickets },
     fallOfWickets: [], // { score, over, player }
     partnerships: [], // completed
     currentPartnership: { runs: 0, batters: new Set() },
-    manhattan: [], // runs per over
+    manhattan: [], // runs per over (index = over number)
     worm: [], // cumulative runs per ball
     overSummaries: [], // { over, runs, wickets, sequence }
     timeline: [], // { over, ball, symbol }
@@ -392,8 +392,8 @@ export default function Scoreboard() {
             };
           }
 
-          // Manhattan
-          const overIdx = data.over;
+          // Manhattan (normalize over index)
+          const overIdx = Math.floor(data.over);
           if (state.manhattan[overIdx] == null) state.manhattan[overIdx] = 0;
           state.manhattan[overIdx] += totalRuns;
 
@@ -403,7 +403,7 @@ export default function Scoreboard() {
             : 0;
           state.worm.push(lastCum + totalRuns);
 
-          // Over summaries
+          // Over summaries (use normalized over index)
           if (!state.overSummaries[overIdx]) {
             state.overSummaries[overIdx] = {
               over: overIdx,
@@ -425,7 +425,7 @@ export default function Scoreboard() {
           else seqSymbol = String(totalRuns);
           os.sequence.push(seqSymbol);
 
-          // Timeline
+          // Timeline (store normalized over)
           let tlSymbol = "•";
           const isBoundary4 = batRuns === 4;
           const isBoundary6 = batRuns === 6;
@@ -437,13 +437,13 @@ export default function Scoreboard() {
           else tlSymbol = String(totalRuns);
 
           state.timeline.push({
-            over: data.over,
+            over: Math.floor(data.over),
             ball: data.ball,
             symbol: tlSymbol,
           });
 
           // Commentary (per innings) with full context
-          const maxOvers = (meta?.event?.overs || 50);
+          const maxOvers = meta?.event?.overs || 50;
           const target = meta?.target || null;
           const line = generateCommentary(
             data,
@@ -487,7 +487,7 @@ export default function Scoreboard() {
     };
 
     return () => ws.close();
-  }, [matchId]); // ✅ only depends on matchId
+  }, [matchId]); // only depends on matchId
 
   const maxOvers = meta?.event?.overs || 50;
 
