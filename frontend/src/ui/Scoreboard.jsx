@@ -19,29 +19,25 @@ export default function Scoreboard() {
 
   const [batters, setBatters] = useState({}); // name -> { runs, balls, fours, sixes, out }
   const [bowlers, setBowlers] = useState({}); // name -> { balls, runs, wickets }
-  const [fallOfWickets, setFallOfWickets] = useState([]); // { score, wicketNumber, over, player }
+  const [fallOfWickets, setFallOfWickets] = useState([]); // { score, over, player }
   const [partnerships, setPartnerships] = useState([]); // completed partnerships
   const [currentPartnership, setCurrentPartnership] = useState({
     runs: 0,
-    wickets: 0,
     batters: new Set(),
   });
 
   const [manhattan, setManhattan] = useState([]); // runs per over
   const [commentary, setCommentary] = useState([]); // latest first
 
-  // Helper: format overs
   const formatOvers = (overs, balls) => `${overs}.${balls}`;
 
-  // Helper: legal ball (wides/no-balls do not count)
   const isLegalBall = (event) => {
     const extras = event.extras || {};
     if (extras.wides || extras.no_balls) return false;
     return true;
   };
 
-  // Helper: generate simple IPL-style commentary
-  const generateCommentary = (data, totalScoreBefore) => {
+  const generateCommentary = (data, totalScoreBefore, wicketsBefore) => {
     const { event, over, ball, team } = data;
     const batter = event.batter;
     const bowler = event.bowler;
@@ -71,7 +67,8 @@ export default function Scoreboard() {
     }
 
     const newTotal = totalScoreBefore + total;
-    line += ` Score: ${newTotal}/${score.wickets}.`;
+    const newWkts = wicketsBefore + (wicket ? 1 : 0);
+    line += ` Score: ${newTotal}/${newWkts}.`;
 
     return line;
   };
@@ -105,7 +102,11 @@ export default function Scoreboard() {
         const isWicket = wicketArr.length > 0;
         const legal = isLegalBall(event);
 
-        // Update score
+        // Snapshot before updates for commentary/FOW
+        const prevRuns = score.runs;
+        const prevWickets = score.wickets;
+
+        // Score
         setScore((prev) => {
           let runs = prev.runs + totalRuns;
           let wickets = prev.wickets + (isWicket ? wicketArr.length : 0);
@@ -123,7 +124,7 @@ export default function Scoreboard() {
           return { runs, wickets, overs, balls };
         });
 
-        // Update batters
+        // Batters
         setBatters((prev) => {
           const next = { ...prev };
           if (!next[batterName]) {
@@ -143,7 +144,7 @@ export default function Scoreboard() {
           return next;
         });
 
-        // Update bowlers
+        // Bowlers
         setBowlers((prev) => {
           const next = { ...prev };
           if (!next[bowlerName]) {
@@ -161,10 +162,10 @@ export default function Scoreboard() {
         // Fall of wickets
         if (isWicket) {
           setFallOfWickets((prev) => {
-            const wicketNumber = score.wickets + 1; // approximate
             const overStr = `${data.over}.${data.ball}`;
             const player = wicketArr[0].player_out;
-            const totalAfter = score.runs + totalRuns;
+            const totalAfter = prevRuns + totalRuns;
+            const wicketNumber = prevWickets + 1;
             return [
               ...prev,
               {
@@ -190,13 +191,13 @@ export default function Scoreboard() {
                 batters: Array.from(next.batters),
               },
             ]);
-            return { runs: 0, wickets: 0, batters: new Set() };
+            return { runs: 0, batters: new Set() };
           }
 
           return next;
         });
 
-        // Manhattan (runs per over)
+        // Manhattan
         setManhattan((prev) => {
           const idx = data.over;
           const copy = [...prev];
@@ -207,9 +208,16 @@ export default function Scoreboard() {
 
         // Commentary
         setCommentary((prev) => {
-          const line = generateCommentary(data, score.runs);
-          return [line, ...prev].slice(0, 20);
+          const line = generateCommentary(data, prevRuns, prevWickets);
+          return [line, ...prev].slice(0, 30);
         });
+      } else if (data.type === "end") {
+        // If you want to set a target for second innings, you can do it here
+        // Example (only if first innings):
+        // setMeta(prev => ({
+        //   ...prev,
+        //   target: { runs: score.runs + 1, overs: prev.event?.overs || 50 }
+        // }));
       }
     };
 
@@ -222,7 +230,7 @@ export default function Scoreboard() {
     };
 
     return () => ws.close();
-  }, [matchId, score.runs, score.wickets]);
+  }, [matchId]); // IMPORTANT: only depend on matchId
 
   const runRate = useMemo(() => {
     const totalBalls = score.overs * 6 + score.balls;
@@ -230,10 +238,9 @@ export default function Scoreboard() {
     return (score.runs * 6) / totalBalls;
   }, [score]);
 
-  // Required run rate: only if meta has target
   const requiredRunRate = useMemo(() => {
     if (!meta || !meta.target) return null;
-    const target = meta.target; // expect { runs, overs }
+    const target = meta.target; // { runs, overs }
     const totalBalls = target.overs * 6;
     const ballsUsed = score.overs * 6 + score.balls;
     const ballsLeft = totalBalls - ballsUsed;
@@ -244,7 +251,9 @@ export default function Scoreboard() {
 
   const renderManhattan = () => {
     if (!manhattan.length) return null;
-    const max = Math.max(...manhattan.filter((v) => v != null));
+    const filtered = manhattan.filter((v) => v != null);
+    if (!filtered.length) return null;
+    const max = Math.max(...filtered);
     if (!max) return null;
 
     return (
@@ -252,9 +261,11 @@ export default function Scoreboard() {
         <div>Manhattan (runs per over)</div>
         <div style={{ display: "flex", gap: 4, alignItems: "flex-end" }}>
           {manhattan.map((runs, i) => {
-            if (runs == null) return (
-              <div key={i} style={{ width: 10, height: 2, background: "#333" }} />
-            );
+            if (runs == null) {
+              return (
+                <div key={i} style={{ width: 10, height: 2, background: "#333" }} />
+              );
+            }
             const height = (runs / max) * 60;
             return (
               <div key={i} style={{ textAlign: "center" }}>
@@ -288,8 +299,10 @@ export default function Scoreboard() {
           </div>
           {meta.event && (
             <div>
-              {meta.event.name} {meta.event.stage || meta.event.group || ""}{" "}
-              {meta.event.match_number ? `(#${meta.event.match_number})` : ""}
+              {meta.event.name}
+              {meta.event.stage ? ` — ${meta.event.stage}` : ""}
+              {meta.event.group ? ` — ${meta.event.group}` : ""}
+              {meta.event.match_number ? ` (#${meta.event.match_number})` : ""}
             </div>
           )}
           {meta.toss && (
@@ -300,7 +313,6 @@ export default function Scoreboard() {
         </div>
       )}
 
-      {/* Main score */}
       <div style={{ marginTop: 20, fontSize: 28 }}>
         <strong>
           {score.runs}/{score.wickets}
@@ -317,7 +329,7 @@ export default function Scoreboard() {
         )}
       </div>
 
-      {/* Batting card */}
+      {/* Batting */}
       <div style={{ marginTop: 20 }}>
         <h3>Batting</h3>
         <table style={{ width: "100%", fontSize: 14, borderCollapse: "collapse" }}>
@@ -351,7 +363,7 @@ export default function Scoreboard() {
         </table>
       </div>
 
-      {/* Bowling card */}
+      {/* Bowling */}
       <div style={{ marginTop: 20 }}>
         <h3>Bowling</h3>
         <table style={{ width: "100%", fontSize: 14, borderCollapse: "collapse" }}>
@@ -365,6 +377,7 @@ export default function Scoreboard() {
           </thead>
           <tbody>
             {Object.entries(bowlers).map(([name, bw]) => {
+              if (!bw.balls) return null;
               const overs = Math.floor(bw.balls / 6);
               const balls = bw.balls % 6;
               return (
@@ -433,11 +446,6 @@ export default function Scoreboard() {
           </div>
         </div>
       )}
-
-      {/* Raw debug (optional) */}
-      {/* <pre style={{ marginTop: 20, color: "lightgreen" }}>
-        {JSON.stringify(balls, null, 2)}
-      </pre> */}
     </div>
   );
 }
