@@ -1,0 +1,14 @@
+{
+  "name": "cric-broadcast-node-backend",
+  "version": "1.0.0",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "microsoft-cognitiveservices-speech-sdk": "^1.34.0",
+    "fs-extra": "^11.2.0"
+  }
+}
