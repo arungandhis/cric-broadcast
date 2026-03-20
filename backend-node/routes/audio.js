@@ -3,7 +3,9 @@ const path = require("path");
 const router = express.Router();
 
 const { generateOverScript } = require("../commentary/scriptGenerator");
-const { synthesizeOverSegments } = require("../tts/azureTts");
+
+const { synthesizeOverSegmentsWithCoqui } = require("../tts/coquiOverTts");
+
 const { stitchOverAudio } = require("../audio/stitcher");
 
 // POST /api/audio/generate-over
@@ -16,7 +18,7 @@ router.post("/generate-over", async (req, res) => {
     }
 
     const script = generateOverScript(overData, context || {});
-    const segmentAudio = await synthesizeOverSegments(
+    const segmentAudio = await synthesizeOverSegmentsWithCoqui(
       script,
       path.join(__dirname, "../output/audio")
     );
