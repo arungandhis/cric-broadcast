@@ -26,42 +26,6 @@ const isLegalBall = (event) => {
   return true;
 };
 
-const generateCommentary = (data, totalScoreBefore, wicketsBefore) => {
-  const { event, over, ball, team } = data;
-  const batter = event.batter;
-  const bowler = event.bowler;
-  const runs = event.runs?.batter || 0;
-  const total = event.runs?.total || 0;
-  const extras = event.extras || {};
-  const wicket = event.wickets && event.wickets.length > 0 ? event.wickets[0] : null;
-
-  let line = "";
-
-  if (wicket) {
-    const kind = wicket.kind;
-    const outName = wicket.player_out;
-    line = `${over}.${ball} ${bowler} to ${batter} — OUT! ${outName} ${kind}!.`;
-  } else if (extras.wides) {
-    line = `${over}.${ball} ${bowler} sprays it wide — ${extras.wides} run(s) to ${team}.`;
-  } else if (extras.no_balls) {
-    line = `${over}.${ball} No-ball from ${bowler}! Free hit coming up.`;
-  } else if (runs === 0 && total === 0) {
-    line = `${over}.${ball} ${bowler} to ${batter} — dot ball, pressure building.`;
-  } else if (runs === 4) {
-    line = `${over}.${ball} ${bowler} to ${batter} — FOUR! Crunched to the fence.`;
-  } else if (runs === 6) {
-    line = `${over}.${ball} ${bowler} to ${batter} — SIX! That’s out of the park!`;
-  } else {
-    line = `${over}.${ball} ${bowler} to ${batter} — ${total} run(s).`;
-  }
-
-  const newTotal = totalScoreBefore + total;
-  const newWkts = wicketsBefore + (wicket ? 1 : 0);
-  line += ` Score: ${newTotal}/${newWkts}.`;
-
-  return line;
-};
-
 const computeRunRate = (score) => {
   const totalBalls = score.overs * 6 + score.balls;
   if (totalBalls === 0) return 0;
@@ -75,6 +39,219 @@ const computeProjected = (score, maxOvers) => {
   const rr = computeRunRate(score);
   const proj = (rr * maxBalls) / 6;
   return Math.round(proj);
+};
+
+// 🔥 Rich commentary engine
+const generateCommentary = (
+  data,
+  prevRuns,
+  prevWickets,
+  batterStats,
+  bowlerStats,
+  partnershipRuns,
+  scoreAfter,
+  maxOvers,
+  target // { runs, overs } or null
+) => {
+  const { event, over, ball, team } = data;
+  const batter = event.batter;
+  const bowler = event.bowler;
+
+  const runs = event.runs?.batter || 0;
+  const total = event.runs?.total || 0;
+  const extras = event.extras || {};
+  const wicket = event.wickets && event.wickets.length > 0 ? event.wickets[0] : null;
+
+  const newTotal = scoreAfter.runs;
+  const newWkts = scoreAfter.wickets;
+
+  // Batter stats
+  const b = batterStats[batter] || { runs: 0, balls: 0, fours: 0, sixes: 0 };
+  const strikeRate = b.balls ? ((b.runs / b.balls) * 100).toFixed(1) : "0.0";
+
+  // Bowler stats
+  const bw = bowlerStats[bowler] || { balls: 0, runs: 0, wickets: 0 };
+  const bwOvers = Math.floor(bw.balls / 6);
+  const bwBalls = bw.balls % 6;
+  const economy = bw.balls ? ((bw.runs * 6) / bw.balls).toFixed(2) : "0.00";
+
+  // Partnership
+  const pRuns = partnershipRuns;
+
+  // Run rate / pressure
+  const totalBalls = scoreAfter.overs * 6 + scoreAfter.balls;
+  const crr = totalBalls ? (newTotal * 6) / totalBalls : 0;
+  let rrr = null;
+  let runsNeeded = null;
+  let ballsLeft = null;
+
+  if (target) {
+    const targetRuns = target.runs;
+    const maxBalls = target.overs * 6;
+    runsNeeded = targetRuns - newTotal;
+    ballsLeft = maxBalls - totalBalls;
+    if (runsNeeded > 0 && ballsLeft > 0) {
+      rrr = (runsNeeded * 6) / ballsLeft;
+    }
+  }
+
+  const fmtRR = (v) => (v == null ? "-" : v.toFixed(2));
+
+  let lines = [];
+
+  // Core ball description
+  if (wicket) {
+    const kind = wicket.kind;
+    const outName = wicket.player_out;
+    lines.push(
+      `${over}.${ball} ${bowler} to ${batter} — OUT! ${outName} ${kind}!`,
+      `${team} now ${newTotal}/${newWkts}.`
+    );
+  } else if (extras.wides) {
+    lines.push(
+      `${over}.${ball} ${bowler} bowls a wide — ${extras.wides} run(s).`,
+      `Score: ${newTotal}/${newWkts}.`
+    );
+  } else if (extras.no_balls) {
+    lines.push(
+      `${over}.${ball} No-ball from ${bowler}! Free hit coming.`,
+      `Score: ${newTotal}/${newWkts}.`
+    );
+  } else if (runs === 0 && total === 0) {
+    lines.push(
+      `${over}.${ball} ${bowler} to ${batter} — dot ball.`,
+      `Score: ${newTotal}/${newWkts}.`
+    );
+  } else if (runs === 4) {
+    lines.push(
+      `${over}.${ball} ${bowler} to ${batter} — FOUR! Crunched to the fence.`,
+      `Score: ${newTotal}/${newWkts}.`
+    );
+  } else if (runs === 6) {
+    lines.push(
+      `${over}.${ball} ${bowler} to ${batter} — SIX! That’s massive!`,
+      `Score: ${newTotal}/${newWkts}.`
+    );
+  } else {
+    lines.push(
+      `${over}.${ball} ${bowler} to ${batter} — ${total} run(s).`,
+      `Score: ${newTotal}/${newWkts}.`
+    );
+  }
+
+  // Batter line
+  lines.push(
+    `${batter}: ${b.runs}(${b.balls}) with ${b.fours}×4, ${b.sixes}×6 (SR ${strikeRate}).`
+  );
+
+  // Bowler line
+  lines.push(
+    `${bowler}: ${bwOvers}.${bwBalls} overs, ${bw.runs} runs, ${bw.wickets} wickets (Eco ${economy}).`
+  );
+
+  // Partnership
+  if (pRuns > 0) {
+    lines.push(`Partnership: ${pRuns} runs.`);
+  }
+
+  // Pressure / chase context
+  if (target && runsNeeded > 0 && ballsLeft > 0) {
+    lines.push(
+      `CRR ${fmtRR(crr)}, RRR ${fmtRR(rrr)} — ${runsNeeded} needed off ${ballsLeft} balls.`
+    );
+  }
+
+  // Milestones
+  if (!wicket) {
+    if (b.runs >= 50 && b.runs - runs < 50) {
+      lines.push(`${batter} brings up a fine fifty!`);
+    }
+    if (b.runs >= 100 && b.runs - runs < 100) {
+      lines.push(`${batter} reaches a superb hundred!`);
+    }
+  }
+
+  if (bw.wickets >= 3 && bw.wickets - (wicket ? 1 : 0) < 3) {
+    lines.push(`${bowler} now has three wickets in this spell.`);
+  }
+  if (bw.wickets >= 5 && bw.wickets - (wicket ? 1 : 0) < 5) {
+    lines.push(`${bowler} completes a five‑wicket haul!`);
+  }
+
+  // Over‑end summary (simple heuristic)
+  const isOverEnd = ball === 6 || scoreAfter.balls === 0;
+  if (isOverEnd) {
+    lines.push(
+      `End of over ${over}. ${team} ${newTotal}/${newWkts} (RR ${fmtRR(crr)}).`
+    );
+  }
+
+  return lines.join("\n");
+};
+
+// 🏁 Match summary + result
+const getTopBatter = (inn) => {
+  const entries = Object.entries(inn.batters);
+  if (!entries.length) return "No batting data";
+  const sorted = entries.sort((a, b) => b[1].runs - a[1].runs);
+  const [name, stats] = sorted[0];
+  return `${name} ${stats.runs}(${stats.balls})`;
+};
+
+const getTopBowler = (inn1, inn2) => {
+  const bowlers = [
+    ...Object.entries(inn1.bowlers),
+    ...Object.entries(inn2.bowlers),
+  ];
+  if (!bowlers.length) return "No bowling data";
+  const sorted = bowlers.sort((a, b) => b[1].wickets - a[1].wickets);
+  const [name, stats] = sorted[0];
+  return `${name} ${stats.wickets} wickets`;
+};
+
+const generateMatchSummary = (innings) => {
+  const inn1 = innings[1];
+  const inn2 = innings[2];
+
+  if (!inn1.team || inn1.score.runs === 0) return null;
+
+  const team1 = inn1.team;
+  const team2 = inn2.team || "Second team";
+
+  const score1 = `${inn1.score.runs}/${inn1.score.wickets} (${inn1.score.overs}.${inn1.score.balls})`;
+  const score2 = inn2.score.runs
+    ? `${inn2.score.runs}/${inn2.score.wickets} (${inn2.score.overs}.${inn2.score.balls})`
+    : null;
+
+  let result = "";
+
+  if (!score2) {
+    result = `${team1} scored ${score1}. Second innings not played.`;
+  } else {
+    if (inn2.score.runs > inn1.score.runs) {
+      const wicketsLeft = 10 - inn2.score.wickets;
+      result = `${team2} won by ${wicketsLeft} wicket(s).`;
+    } else if (inn2.score.runs < inn1.score.runs) {
+      const runsShort = inn1.score.runs - inn2.score.runs;
+      result = `${team1} won by ${runsShort} runs.`;
+    } else {
+      result = `Match tied.`;
+    }
+  }
+
+  return [
+    "🏁 MATCH SUMMARY",
+    "",
+    `${team1}: ${score1}`,
+    `${team2}: ${score2 || "Did not bat"}`,
+    "",
+    `Result: ${result}`,
+    "",
+    "Top Performers:",
+    `• ${team1} batting: ${getTopBatter(inn1)}`,
+    `• ${team2} batting: ${getTopBatter(inn2)}`,
+    `• Best bowler: ${getTopBowler(inn1, inn2)}`,
+  ].join("\n");
 };
 
 export default function Scoreboard() {
@@ -265,15 +442,39 @@ export default function Scoreboard() {
             symbol: tlSymbol,
           });
 
-          // Commentary (per innings)
-          const line = generateCommentary(data, prevRuns, prevWickets);
+          // Commentary (per innings) with full context
+          const maxOvers = meta?.event?.overs || 50;
+          const target = meta?.target || null;
+          const line = generateCommentary(
+            data,
+            prevRuns,
+            prevWickets,
+            state.batters,
+            state.bowlers,
+            state.currentPartnership.runs,
+            state.score,
+            maxOvers,
+            target
+          );
           state.commentary.unshift(line);
-          if (state.commentary.length > 40) state.commentary.pop();
+          if (state.commentary.length > 60) state.commentary.pop();
 
           return next;
         });
       } else if (data.type === "end") {
-        // nothing special needed here for now
+        // Match end: generate summary and inject into commentary
+        const summary = generateMatchSummary(innings);
+        if (summary) {
+          setInnings((prev) => {
+            const next = {
+              1: { ...prev[1], commentary: [...prev[1].commentary] },
+              2: { ...prev[2], commentary: [...prev[2].commentary] },
+            };
+            next[1].commentary.unshift(summary);
+            next[2].commentary.unshift(summary);
+            return next;
+          });
+        }
       }
     };
 
@@ -286,7 +487,7 @@ export default function Scoreboard() {
     };
 
     return () => ws.close();
-  }, [matchId]);
+  }, [matchId, meta, innings]);
 
   const maxOvers = meta?.event?.overs || 50;
 
@@ -549,9 +750,11 @@ export default function Scoreboard() {
         {state.commentary.length > 0 && (
           <div style={{ marginTop: 16 }}>
             <h4>Commentary</h4>
-            <div style={{ fontSize: 14 }}>
+            <div style={{ fontSize: 14, whiteSpace: "pre-line" }}>
               {state.commentary.map((line, idx) => (
-                <div key={idx}>{line}</div>
+                <div key={idx} style={{ marginBottom: 8 }}>
+                  {line}
+                </div>
               ))}
             </div>
           </div>
@@ -559,6 +762,8 @@ export default function Scoreboard() {
       </div>
     );
   };
+
+  const matchSummary = generateMatchSummary(innings);
 
   return (
     <div style={{ padding: 20, color: "white", fontFamily: "system-ui" }}>
@@ -588,9 +793,25 @@ export default function Scoreboard() {
         </div>
       )}
 
-      {/* Innings 1 and 2 stacked */}
       {renderInningsBlock(1)}
       {renderInningsBlock(2)}
+
+      {/* Match Result block */}
+      {matchSummary && (
+        <div
+          style={{
+            marginTop: 30,
+            padding: 16,
+            borderRadius: 8,
+            border: "1px solid #555",
+            background: "#222",
+            whiteSpace: "pre-line",
+          }}
+        >
+          <h3>Match Result</h3>
+          {matchSummary}
+        </div>
+      )}
 
       <div style={{ marginTop: 20, fontSize: 12, color: "#aaa" }}>
         Wagon wheel would require shot direction/angle data, which is not present in Cricsheet JSON.
