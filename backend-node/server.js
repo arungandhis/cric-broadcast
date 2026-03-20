@@ -6,7 +6,10 @@ app.use(express.json());
 
 // Routes
 const ttsRoutes = require("./routes/tts");
+const audioRoutes = require("./routes/audio");
+
 app.use("/api/tts", ttsRoutes);
+app.use("/api/audio", audioRoutes);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
