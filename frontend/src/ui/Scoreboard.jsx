@@ -443,7 +443,7 @@ export default function Scoreboard() {
           });
 
           // Commentary (per innings) with full context
-          const maxOvers = meta?.event?.overs || 50;
+          const maxOvers = (meta?.event?.overs || 50);
           const target = meta?.target || null;
           const line = generateCommentary(
             data,
@@ -462,19 +462,19 @@ export default function Scoreboard() {
           return next;
         });
       } else if (data.type === "end") {
-        // Match end: generate summary and inject into commentary
-        const summary = generateMatchSummary(innings);
-        if (summary) {
-          setInnings((prev) => {
-            const next = {
-              1: { ...prev[1], commentary: [...prev[1].commentary] },
-              2: { ...prev[2], commentary: [...prev[2].commentary] },
-            };
-            next[1].commentary.unshift(summary);
-            next[2].commentary.unshift(summary);
-            return next;
-          });
-        }
+        // Match end: generate summary and inject into commentary using latest state
+        setInnings((prev) => {
+          const summary = generateMatchSummary(prev);
+          if (!summary) return prev;
+
+          const next = {
+            1: { ...prev[1], commentary: [...prev[1].commentary] },
+            2: { ...prev[2], commentary: [...prev[2].commentary] },
+          };
+          next[1].commentary.unshift(summary);
+          next[2].commentary.unshift(summary);
+          return next;
+        });
       }
     };
 
@@ -487,7 +487,7 @@ export default function Scoreboard() {
     };
 
     return () => ws.close();
-  }, [matchId, meta, innings]);
+  }, [matchId]); // ✅ only depends on matchId
 
   const maxOvers = meta?.event?.overs || 50;
 
