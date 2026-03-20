@@ -27,7 +27,12 @@ export default function Scoreboard() {
   });
 
   const [manhattan, setManhattan] = useState([]); // runs per over
+  const [worm, setWorm] = useState([]); // cumulative runs per ball
+  const [overSummaries, setOverSummaries] = useState([]); // { over, runs, wickets, sequence }
+  const [timeline, setTimeline] = useState([]); // { over, ball, symbol }
   const [commentary, setCommentary] = useState([]); // latest first
+
+  const [target, setTarget] = useState(null); // { runs, overs }
 
   const formatOvers = (overs, balls) => `${overs}.${balls}`;
 
@@ -102,7 +107,6 @@ export default function Scoreboard() {
         const isWicket = wicketArr.length > 0;
         const legal = isLegalBall(event);
 
-        // Snapshot before updates for commentary/FOW
         const prevRuns = score.runs;
         const prevWickets = score.wickets;
 
@@ -206,18 +210,77 @@ export default function Scoreboard() {
           return copy;
         });
 
+        // Worm (cumulative)
+        setWorm((prev) => {
+          const last = prev.length ? prev[prev.length - 1] : 0;
+          return [...prev, last + totalRuns];
+        });
+
+        // Over summaries
+        setOverSummaries((prev) => {
+          const copy = [...prev];
+          const overIndex = data.over;
+          if (!copy[overIndex]) {
+            copy[overIndex] = {
+              over: overIndex,
+              runs: 0,
+              wickets: 0,
+              sequence: [],
+            };
+          }
+          const os = copy[overIndex];
+          os.runs += totalRuns;
+          if (isWicket) os.wickets += wicketArr.length;
+
+          let symbol = "";
+          const batRuns = event.runs?.batter || 0;
+          const extras = event.extras || {};
+          if (isWicket) symbol = "W";
+          else if (extras.wides) symbol = `${extras.wides}wd`;
+          else if (extras.no_balls) symbol = `${batRuns}+nb`;
+          else if (batRuns === 0 && totalRuns === 0) symbol = ".";
+          else symbol = String(totalRuns);
+
+          os.sequence.push(symbol);
+          return copy;
+        });
+
+        // Timeline
+        setTimeline((prev) => {
+          const batRuns = event.runs?.batter || 0;
+          const extras = event.extras || {};
+          const isBoundary4 = batRuns === 4;
+          const isBoundary6 = batRuns === 6;
+          const isW = isWicket;
+          let symbol = "•";
+          if (isW) symbol = "W";
+          else if (isBoundary6) symbol = "6";
+          else if (isBoundary4) symbol = "4";
+          else if (extras.wides || extras.no_balls) symbol = "+";
+          else if (batRuns === 0 && totalRuns === 0) symbol = ".";
+          else symbol = String(totalRuns);
+
+          return [
+            ...prev,
+            {
+              over: data.over,
+              ball: data.ball,
+              symbol,
+            },
+          ];
+        });
+
         // Commentary
         setCommentary((prev) => {
           const line = generateCommentary(data, prevRuns, prevWickets);
-          return [line, ...prev].slice(0, 30);
+          return [line, ...prev].slice(0, 40);
         });
       } else if (data.type === "end") {
-        // If you want to set a target for second innings, you can do it here
-        // Example (only if first innings):
-        // setMeta(prev => ({
-        //   ...prev,
-        //   target: { runs: score.runs + 1, overs: prev.event?.overs || 50 }
-        // }));
+        // Optional: set target for second innings (if you later support multi-innings)
+        // Example:
+        // if (!target) {
+        //   setTarget({ runs: score.runs + 1, overs: meta?.event?.overs || 50 });
+        // }
       }
     };
 
@@ -230,7 +293,7 @@ export default function Scoreboard() {
     };
 
     return () => ws.close();
-  }, [matchId]); // IMPORTANT: only depend on matchId
+  }, [matchId]);
 
   const runRate = useMemo(() => {
     const totalBalls = score.overs * 6 + score.balls;
@@ -239,15 +302,41 @@ export default function Scoreboard() {
   }, [score]);
 
   const requiredRunRate = useMemo(() => {
-    if (!meta || !meta.target) return null;
-    const target = meta.target; // { runs, overs }
-    const totalBalls = target.overs * 6;
+    const t = target || meta?.target;
+    if (!t) return null;
+    const totalBalls = t.overs * 6;
     const ballsUsed = score.overs * 6 + score.balls;
     const ballsLeft = totalBalls - ballsUsed;
-    const runsNeeded = target.runs - score.runs;
+    const runsNeeded = t.runs - score.runs;
     if (ballsLeft <= 0 || runsNeeded <= 0) return 0;
     return (runsNeeded * 6) / ballsLeft;
-  }, [meta, score]);
+  }, [target, meta, score]);
+
+  const winProbability = useMemo(() => {
+    const t = target || meta?.target;
+    if (!t) return null;
+    const totalBalls = t.overs * 6;
+    const ballsUsed = score.overs * 6 + score.balls;
+    const ballsLeft = Math.max(totalBalls - ballsUsed, 1);
+    const runsNeeded = t.runs - score.runs;
+    if (runsNeeded <= 0) return 95;
+    const reqRR = (runsNeeded * 6) / ballsLeft;
+    const curRR = runRate || 0.01;
+    const ratio = curRR / reqRR;
+    let base = ratio * 50;
+    base -= score.wickets * 3;
+    return Math.max(1, Math.min(99, Math.round(base)));
+  }, [target, meta, score, runRate]);
+
+  const projectedScore = useMemo(() => {
+    const totalBalls = score.overs * 6 + score.balls;
+    if (totalBalls === 0) return null;
+    const maxOvers = meta?.event?.overs || 50;
+    const maxBalls = maxOvers * 6;
+    const rr = runRate;
+    const proj = (rr * maxBalls) / 6;
+    return Math.round(proj);
+  }, [score, runRate, meta]);
 
   const renderManhattan = () => {
     if (!manhattan.length) return null;
@@ -285,9 +374,73 @@ export default function Scoreboard() {
     );
   };
 
+  const renderWorm = () => {
+    if (!worm.length) return null;
+    const max = Math.max(...worm);
+    if (!max) return null;
+
+    return (
+      <div style={{ marginTop: 10 }}>
+        <div>Worm (cumulative runs)</div>
+        <div style={{ display: "flex", gap: 2, alignItems: "flex-end" }}>
+          {worm.map((val, i) => {
+            const height = (val / max) * 60;
+            return (
+              <div key={i} style={{ textAlign: "center" }}>
+                <div
+                  style={{
+                    width: 4,
+                    height,
+                    background: "#ff9800",
+                  }}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderOverSummaries = () => {
+    if (!overSummaries.length) return null;
+    return (
+      <div style={{ marginTop: 20 }}>
+        <h3>Over summaries</h3>
+        <div style={{ fontSize: 14 }}>
+          {overSummaries.map((os, idx) => {
+            if (!os) return null;
+            return (
+              <div key={idx}>
+                Over {os.over}: {os.runs} runs, {os.wickets} wkts —{" "}
+                {os.sequence.join(" ")}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderTimeline = () => {
+    if (!timeline.length) return null;
+    return (
+      <div style={{ marginTop: 20 }}>
+        <h3>Timeline</h3>
+        <div style={{ fontSize: 12, display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {timeline.map((t, idx) => (
+            <span key={idx}>
+              {t.over}.{t.ball}:{t.symbol}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{ padding: 20, color: "white", fontFamily: "system-ui" }}>
-      <h2>Live Scoreboard</h2>
+      <h2>Cricket Broadcast Engine</h2>
 
       <div>Status: {status}</div>
       <div>Match ID: {matchId || "None"}</div>
@@ -326,6 +479,12 @@ export default function Scoreboard() {
           <span style={{ marginLeft: 12 }}>
             Req. rate: {requiredRunRate.toFixed(2)}
           </span>
+        )}
+        {projectedScore != null && (
+          <span style={{ marginLeft: 12 }}>Proj: {projectedScore}</span>
+        )}
+        {winProbability != null && (
+          <span style={{ marginLeft: 12 }}>Win %: {winProbability}</span>
         )}
       </div>
 
@@ -427,15 +586,15 @@ export default function Scoreboard() {
         </div>
       )}
 
-      {/* Manhattan */}
       {renderManhattan()}
+      {renderWorm()}
+      {renderOverSummaries()}
+      {renderTimeline()}
 
-      {/* Wagon wheel note */}
       <div style={{ marginTop: 20, fontSize: 12, color: "#aaa" }}>
-        Wagon wheel requires shot direction data, which Cricsheet does not provide in this JSON.
+        Wagon wheel would require shot direction/angle data, which is not present in Cricsheet JSON.
       </div>
 
-      {/* Commentary */}
       {commentary.length > 0 && (
         <div style={{ marginTop: 20 }}>
           <h3>Commentary</h3>
