@@ -1,5 +1,10 @@
+// src/ui/Scoreboard.jsx
+
 import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
+
+// Import the innings summary helper
+import { generateInningsSummary } from "../helpers/inningsSummary";
 
 function createEmptyInningsState() {
   return {
@@ -41,7 +46,9 @@ const computeProjected = (score, maxOvers) => {
   return Math.round(proj);
 };
 
-// 🔥 Rich commentary engine
+// ------------------------------
+// COMMENTARY ENGINE
+// ------------------------------
 const generateCommentary = (
   data,
   prevRuns,
@@ -51,7 +58,7 @@ const generateCommentary = (
   partnershipRuns,
   scoreAfter,
   maxOvers,
-  target // { runs, overs } or null
+  target
 ) => {
   const { event, over, ball, team } = data;
   const batter = event.batter;
@@ -65,22 +72,19 @@ const generateCommentary = (
   const newTotal = scoreAfter.runs;
   const newWkts = scoreAfter.wickets;
 
-  // Batter stats
   const b = batterStats[batter] || { runs: 0, balls: 0, fours: 0, sixes: 0 };
   const strikeRate = b.balls ? ((b.runs / b.balls) * 100).toFixed(1) : "0.0";
 
-  // Bowler stats
   const bw = bowlerStats[bowler] || { balls: 0, runs: 0, wickets: 0 };
   const bwOvers = Math.floor(bw.balls / 6);
   const bwBalls = bw.balls % 6;
   const economy = bw.balls ? ((bw.runs * 6) / bw.balls).toFixed(2) : "0.00";
 
-  // Partnership
   const pRuns = partnershipRuns;
 
-  // Run rate / pressure
   const totalBalls = scoreAfter.overs * 6 + scoreAfter.balls;
   const crr = totalBalls ? (newTotal * 6) / totalBalls : 0;
+
   let rrr = null;
   let runsNeeded = null;
   let ballsLeft = null;
@@ -99,7 +103,7 @@ const generateCommentary = (
 
   let lines = [];
 
-  // Core ball description
+  // Ball description
   if (wicket) {
     const kind = wicket.kind;
     const outName = wicket.player_out;
@@ -124,12 +128,12 @@ const generateCommentary = (
     );
   } else if (runs === 4) {
     lines.push(
-      `${over}.${ball} ${bowler} to ${batter} — FOUR! Crunched to the fence.`,
+      `${over}.${ball} ${bowler} to ${batter} — FOUR!`,
       `Score: ${newTotal}/${newWkts}.`
     );
   } else if (runs === 6) {
     lines.push(
-      `${over}.${ball} ${bowler} to ${batter} — SIX! That’s massive!`,
+      `${over}.${ball} ${bowler} to ${batter} — SIX!`,
       `Score: ${newTotal}/${newWkts}.`
     );
   } else {
@@ -150,11 +154,9 @@ const generateCommentary = (
   );
 
   // Partnership
-  if (pRuns > 0) {
-    lines.push(`Partnership: ${pRuns} runs.`);
-  }
+  if (pRuns > 0) lines.push(`Partnership: ${pRuns} runs.`);
 
-  // Pressure / chase context
+  // Chase context
   if (target && runsNeeded > 0 && ballsLeft > 0) {
     lines.push(
       `CRR ${fmtRR(crr)}, RRR ${fmtRR(rrr)} — ${runsNeeded} needed off ${ballsLeft} balls.`
@@ -163,22 +165,15 @@ const generateCommentary = (
 
   // Milestones
   if (!wicket) {
-    if (b.runs >= 50 && b.runs - runs < 50) {
-      lines.push(`${batter} brings up a fine fifty!`);
-    }
-    if (b.runs >= 100 && b.runs - runs < 100) {
-      lines.push(`${batter} reaches a superb hundred!`);
-    }
+    if (b.runs >= 50 && b.runs - runs < 50) lines.push(`${batter} brings up a fifty!`);
+    if (b.runs >= 100 && b.runs - runs < 100) lines.push(`${batter} reaches a hundred!`);
   }
 
-  if (bw.wickets >= 3 && bw.wickets - (wicket ? 1 : 0) < 3) {
-    lines.push(`${bowler} now has three wickets in this spell.`);
-  }
-  if (bw.wickets >= 5 && bw.wickets - (wicket ? 1 : 0) < 5) {
+  if (bw.wickets >= 3 && bw.wickets - (wicket ? 1 : 0) < 3)
+    lines.push(`${bowler} now has three wickets.`);
+  if (bw.wickets >= 5 && bw.wickets - (wicket ? 1 : 0) < 5)
     lines.push(`${bowler} completes a five‑wicket haul!`);
-  }
 
-  // Over‑end summary (simple heuristic)
   const isOverEnd = ball === 6 || scoreAfter.balls === 0;
   if (isOverEnd) {
     lines.push(
@@ -189,7 +184,9 @@ const generateCommentary = (
   return lines.join("\n");
 };
 
-// 🏁 Match summary + result
+// ------------------------------
+// MATCH SUMMARY
+// ------------------------------
 const getTopBatter = (inn) => {
   const entries = Object.entries(inn.batters);
   if (!entries.length) return "No batting data";
@@ -254,6 +251,9 @@ const generateMatchSummary = (innings) => {
   ].join("\n");
 };
 
+// ------------------------------
+// MAIN COMPONENT
+// ------------------------------
 export default function Scoreboard() {
   const location = useLocation();
   const params = new URLSearchParams(location.search);
@@ -267,6 +267,9 @@ export default function Scoreboard() {
     2: createEmptyInningsState(),
   });
 
+  // ------------------------------
+  // WEBSOCKET SETUP
+  // ------------------------------
   useEffect(() => {
     if (!matchId) {
       setStatus("no-match-id");
@@ -276,15 +279,16 @@ export default function Scoreboard() {
     const wsUrl = `${import.meta.env.VITE_WS_URL}/ws/match/${matchId}`;
     const ws = new WebSocket(wsUrl);
 
-    ws.onopen = () => {
-      setStatus("connected");
-    };
+    ws.onopen = () => setStatus("connected");
 
     ws.onmessage = (msg) => {
       const data = JSON.parse(msg.data);
 
+      // META
       if (data.type === "meta") {
         setMeta(data);
+
+      // BALL EVENT
       } else if (data.type === "ball") {
         const inn = data.inning || 1;
         const teamName = data.team;
@@ -296,7 +300,7 @@ export default function Scoreboard() {
           };
           const state = next[inn];
 
-          // shallow copies of nested objects
+          // Deep copy nested structures
           state.score = { ...state.score };
           state.batters = { ...state.batters };
           state.bowlers = { ...state.bowlers };
@@ -320,12 +324,38 @@ export default function Scoreboard() {
           const bowlerName = event.bowler;
           const wicketArr = event.wickets || [];
           const isWicket = wicketArr.length > 0;
+          const extras = event.extras || {};
           const legal = isLegalBall(event);
+
+          // ------------------------------
+          // EXTRAS ENGINE
+          // ------------------------------
+          const batterRuns = event.runs?.batter || 0;
+          const byeRuns = extras.byes || 0;
+          const legbyeRuns = extras.legbyes || 0;
+          const wideRuns = extras.wides || 0;
+          const noballRuns = extras.no_balls || 0;
+          const penaltyRuns = extras.penalty || 0;
+
+          const extrasFromRuns =
+            event.runs?.extras != null
+              ? event.runs.extras
+              : totalRuns - batterRuns;
+
+          const knownExtras =
+            byeRuns + legbyeRuns + wideRuns + noballRuns + penaltyRuns;
+
+          const overthrowRuns = Math.max(0, extrasFromRuns - knownExtras);
+
+          const bowlerConceded =
+            batterRuns + wideRuns + noballRuns + overthrowRuns;
 
           const prevRuns = state.score.runs;
           const prevWickets = state.score.wickets;
 
-          // Score
+          // ------------------------------
+          // SCORE UPDATE
+          // ------------------------------
           state.score.runs += totalRuns;
           if (isWicket) state.score.wickets += wicketArr.length;
           if (legal) {
@@ -336,7 +366,9 @@ export default function Scoreboard() {
             }
           }
 
-          // Batters
+          // ------------------------------
+          // BATTERS
+          // ------------------------------
           if (!state.batters[batterName]) {
             state.batters[batterName] = {
               runs: 0,
@@ -347,25 +379,26 @@ export default function Scoreboard() {
             };
           }
           const b = state.batters[batterName];
-          const batRuns = event.runs?.batter || 0;
-          b.runs += batRuns;
+          b.runs += batterRuns;
           if (legal) b.balls += 1;
-          if (batRuns === 4) b.fours += 1;
-          if (batRuns === 6) b.sixes += 1;
-          if (isWicket && wicketArr[0].player_out === batterName) {
-            b.out = true;
-          }
+          if (batterRuns === 4) b.fours += 1;
+          if (batterRuns === 6) b.sixes += 1;
+          if (isWicket && wicketArr[0].player_out === batterName) b.out = true;
 
-          // Bowlers
+          // ------------------------------
+          // BOWLERS
+          // ------------------------------
           if (!state.bowlers[bowlerName]) {
             state.bowlers[bowlerName] = { balls: 0, runs: 0, wickets: 0 };
           }
           const bw = state.bowlers[bowlerName];
-          bw.runs += totalRuns;
+          bw.runs += bowlerConceded;
           if (legal) bw.balls += 1;
           if (isWicket) bw.wickets += wicketArr.length;
 
-          // Fall of wickets
+          // ------------------------------
+          // FALL OF WICKETS
+          // ------------------------------
           if (isWicket) {
             const overStr = `${data.over}.${data.ball}`;
             const player = wicketArr[0].player_out;
@@ -378,7 +411,9 @@ export default function Scoreboard() {
             });
           }
 
-          // Partnerships
+          // ------------------------------
+          // PARTNERSHIPS
+          // ------------------------------
           state.currentPartnership.runs += totalRuns;
           state.currentPartnership.batters.add(batterName);
           if (isWicket) {
@@ -392,18 +427,24 @@ export default function Scoreboard() {
             };
           }
 
-          // Manhattan (normalize over index)
+          // ------------------------------
+          // MANHATTAN
+          // ------------------------------
           const overIdx = Math.floor(data.over);
           if (state.manhattan[overIdx] == null) state.manhattan[overIdx] = 0;
           state.manhattan[overIdx] += totalRuns;
 
-          // Worm
+          // ------------------------------
+          // WORM
+          // ------------------------------
           const lastCum = state.worm.length
             ? state.worm[state.worm.length - 1]
             : 0;
           state.worm.push(lastCum + totalRuns);
 
-          // Over summaries (use normalized over index)
+          // ------------------------------
+          // OVER SUMMARIES
+          // ------------------------------
           if (!state.overSummaries[overIdx]) {
             state.overSummaries[overIdx] = {
               over: overIdx,
@@ -417,85 +458,22 @@ export default function Scoreboard() {
           if (isWicket) os.wickets += wicketArr.length;
 
           let seqSymbol = "";
-          const extras = event.extras || {};
           if (isWicket) seqSymbol = "W";
-          else if (extras.wides) seqSymbol = `${extras.wides}wd`;
-          else if (extras.no_balls) seqSymbol = `${batRuns}+nb`;
-          else if (batRuns === 0 && totalRuns === 0) seqSymbol = ".";
+          else if (wideRuns) seqSymbol = `${wideRuns}wd`;
+          else if (noballRuns) seqSymbol = `${batterRuns}+nb`;
+          else if (batterRuns === 0 && totalRuns === 0) seqSymbol = ".";
           else seqSymbol = String(totalRuns);
-          os.sequence.push(seqSymbol);
-
-          // Timeline (store normalized over)
-          let tlSymbol = "•";
-          const isBoundary4 = batRuns === 4;
-          const isBoundary6 = batRuns === 6;
-          if (isWicket) tlSymbol = "W";
-          else if (isBoundary6) tlSymbol = "6";
-          else if (isBoundary4) tlSymbol = "4";
-          else if (extras.wides || extras.no_balls) tlSymbol = "+";
-          else if (batRuns === 0 && totalRuns === 0) tlSymbol = ".";
-          else tlSymbol = String(totalRuns);
-
-          state.timeline.push({
-            over: Math.floor(data.over),
-            ball: data.ball,
-            symbol: tlSymbol,
-          });
-
-          // Commentary (per innings) with full context
-          const maxOvers = meta?.event?.overs || 50;
-          const target = meta?.target || null;
-          const line = generateCommentary(
-            data,
-            prevRuns,
-            prevWickets,
-            state.batters,
-            state.bowlers,
-            state.currentPartnership.runs,
-            state.score,
-            maxOvers,
-            target
-          );
-          state.commentary.unshift(line);
-          if (state.commentary.length > 60) state.commentary.pop();
-
-          return next;
-        });
-      } else if (data.type === "end") {
-        // Match end: generate summary and inject into commentary using latest state
-        setInnings((prev) => {
-          const summary = generateMatchSummary(prev);
-          if (!summary) return prev;
-
-          const next = {
-            1: { ...prev[1], commentary: [...prev[1].commentary] },
-            2: { ...prev[2], commentary: [...prev[2].commentary] },
-          };
-          next[1].commentary.unshift(summary);
-          next[2].commentary.unshift(summary);
-          return next;
-        });
-      }
-    };
-
-    ws.onerror = () => {
-      setStatus("error");
-    };
-
-    ws.onclose = () => {
-      setStatus("closed");
-    };
-
-    return () => ws.close();
-  }, [matchId]); // only depends on matchId
-
-  const maxOvers = meta?.event?.overs || 50;
+  // ------------------------------
+  // RENDERING HELPERS
+  // ------------------------------
 
   const renderManhattan = (state) => {
     const arr = state.manhattan;
     if (!arr.length) return null;
+
     const filtered = arr.filter((v) => v != null);
     if (!filtered.length) return null;
+
     const max = Math.max(...filtered);
     if (!max) return null;
 
@@ -531,6 +509,7 @@ export default function Scoreboard() {
   const renderWorm = (state) => {
     const arr = state.worm;
     if (!arr.length) return null;
+
     const max = Math.max(...arr);
     if (!max) return null;
 
@@ -560,6 +539,7 @@ export default function Scoreboard() {
   const renderOverSummaries = (state) => {
     const arr = state.overSummaries;
     if (!arr.length) return null;
+
     return (
       <div style={{ marginTop: 20 }}>
         <h4>Over summaries</h4>
@@ -581,6 +561,7 @@ export default function Scoreboard() {
   const renderTimeline = (state) => {
     const arr = state.timeline;
     if (!arr.length) return null;
+
     return (
       <div style={{ marginTop: 20 }}>
         <h4>Timeline</h4>
@@ -595,9 +576,13 @@ export default function Scoreboard() {
     );
   };
 
+  // ------------------------------
+  // INNINGS BLOCK
+  // ------------------------------
   const renderInningsBlock = (innNumber) => {
     const state = innings[innNumber];
     const score = state.score;
+
     const rr = computeRunRate(score);
     const proj = computeProjected(score, maxOvers);
 
@@ -633,12 +618,12 @@ export default function Scoreboard() {
 
         <div style={{ marginTop: 4 }}>
           <span>Run rate: {rr.toFixed(2)}</span>
-          {proj != null && (
-            <span style={{ marginLeft: 12 }}>Proj: {proj}</span>
-          )}
+          {proj != null && <span style={{ marginLeft: 12 }}>Proj: {proj}</span>}
         </div>
 
-        {/* Batting */}
+        {/* ------------------------------
+            BATTING TABLE
+        ------------------------------ */}
         <div style={{ marginTop: 16 }}>
           <h4>Batting</h4>
           <table
@@ -674,7 +659,9 @@ export default function Scoreboard() {
           </table>
         </div>
 
-        {/* Bowling */}
+        {/* ------------------------------
+            BOWLING TABLE
+        ------------------------------ */}
         <div style={{ marginTop: 16 }}>
           <h4>Bowling</h4>
           <table
@@ -706,7 +693,9 @@ export default function Scoreboard() {
           </table>
         </div>
 
-        {/* Fall of wickets */}
+        {/* ------------------------------
+            FALL OF WICKETS
+        ------------------------------ */}
         {state.fallOfWickets.length > 0 && (
           <div style={{ marginTop: 16 }}>
             <h4>Fall of wickets</h4>
@@ -720,7 +709,9 @@ export default function Scoreboard() {
           </div>
         )}
 
-        {/* Partnerships */}
+        {/* ------------------------------
+            PARTNERSHIPS
+        ------------------------------ */}
         {(state.partnerships.length > 0 ||
           state.currentPartnership.runs > 0) && (
           <div style={{ marginTop: 16 }}>
@@ -741,12 +732,41 @@ export default function Scoreboard() {
           </div>
         )}
 
+        {/* ------------------------------
+            MANHATTAN / WORM / OVERS / TIMELINE
+        ------------------------------ */}
         {renderManhattan(state)}
         {renderWorm(state)}
         {renderOverSummaries(state)}
         {renderTimeline(state)}
 
-        {/* Commentary for this innings */}
+        {/* ------------------------------
+            INNINGS SUMMARY (NEW)
+        ------------------------------ */}
+        {(() => {
+          const summary = generateInningsSummary(state, innNumber);
+          if (!summary) return null;
+
+          return (
+            <div
+              style={{
+                marginTop: 20,
+                padding: 12,
+                borderRadius: 6,
+                border: "1px solid #555",
+                background: "#1a1a1a",
+                whiteSpace: "pre-line",
+              }}
+            >
+              <h4>Innings Summary</h4>
+              {summary}
+            </div>
+          );
+        })()}
+
+        {/* ------------------------------
+            COMMENTARY
+        ------------------------------ */}
         {state.commentary.length > 0 && (
           <div style={{ marginTop: 16 }}>
             <h4>Commentary</h4>
@@ -762,9 +782,9 @@ export default function Scoreboard() {
       </div>
     );
   };
-
-  const matchSummary = generateMatchSummary(innings);
-
+  // ------------------------------
+  // FINAL JSX RETURN
+  // ------------------------------
   return (
     <div style={{ padding: 20, color: "white", fontFamily: "system-ui" }}>
       <h2>Cricket Broadcast Engine</h2>
@@ -772,11 +792,15 @@ export default function Scoreboard() {
       <div>Status: {status}</div>
       <div>Match ID: {matchId || "None"}</div>
 
+      {/* ------------------------------
+          META INFORMATION
+      ------------------------------ */}
       {meta && (
         <div style={{ marginTop: 10 }}>
           <div>
             <strong>{meta.teams?.join(" vs ")}</strong>
           </div>
+
           {meta.event && (
             <div>
               {meta.event.name}
@@ -785,6 +809,7 @@ export default function Scoreboard() {
               {meta.event.match_number ? ` (#${meta.event.match_number})` : ""}
             </div>
           )}
+
           {meta.toss && (
             <div>
               Toss: {meta.toss.winner} chose to {meta.toss.decision}
@@ -793,28 +818,41 @@ export default function Scoreboard() {
         </div>
       )}
 
+      {/* ------------------------------
+          INNINGS 1 + INNINGS 2
+      ------------------------------ */}
       {renderInningsBlock(1)}
       {renderInningsBlock(2)}
 
-      {/* Match Result block */}
-      {matchSummary && (
-        <div
-          style={{
-            marginTop: 30,
-            padding: 16,
-            borderRadius: 8,
-            border: "1px solid #555",
-            background: "#222",
-            whiteSpace: "pre-line",
-          }}
-        >
-          <h3>Match Result</h3>
-          {matchSummary}
-        </div>
-      )}
+      {/* ------------------------------
+          MATCH SUMMARY BLOCK
+      ------------------------------ */}
+      {(() => {
+        const matchSummary = generateMatchSummary(innings);
+        if (!matchSummary) return null;
 
+        return (
+          <div
+            style={{
+              marginTop: 30,
+              padding: 16,
+              borderRadius: 8,
+              border: "1px solid #555",
+              background: "#222",
+              whiteSpace: "pre-line",
+            }}
+          >
+            <h3>Match Result</h3>
+            {matchSummary}
+          </div>
+        );
+      })()}
+
+      {/* ------------------------------
+          FOOTER
+      ------------------------------ */}
       <div style={{ marginTop: 20, fontSize: 12, color: "#aaa" }}>
-        Wagon wheel would require shot direction/angle data, which is not present in Cricsheet JSON.
+        Wagon wheel requires shot direction/angle data, which is not present in Cricsheet JSON.
       </div>
     </div>
   );
