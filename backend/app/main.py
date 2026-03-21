@@ -23,14 +23,15 @@ app.add_middleware(
 # In‑memory match storage
 # ---------------------------------------------------------
 active_matches = {}          # match_id -> raw cricsheet match JSON
-active_connections = {}      # match_id -> [WebSocket, ...]
-current_match_id = None      # used by /ws scoreboard
+current_match_id = None      # scoreboard uses this
+simulation_running = False   # prevents double simulation
+simulation_task = None       # background task handle
 
 
 # ---------------------------------------------------------
-# Helper: build scoreboard state from Cricsheet match JSON
+# Build scoreboard state from partial match progress
 # ---------------------------------------------------------
-def build_scoreboard_from_match(match: dict) -> dict:
+def build_scoreboard_state(match: dict, upto_innings: int, upto_over: int, upto_ball: int):
     info = match.get("info", {})
     teams = info.get("teams", [])
     venue = info.get("venue", "")
@@ -40,7 +41,12 @@ def build_scoreboard_from_match(match: dict) -> dict:
     innings_out = []
     events_out = []
 
-    for inn_index, inn in enumerate(match.get("innings", []), start=1):
+    innings = match.get("innings", [])
+
+    for inn_index, inn in enumerate(innings, start=1):
+        if inn_index > upto_innings:
+            break
+
         team = inn.get("team", f"Innings {inn_index}")
         overs = inn.get("overs", [])
 
@@ -48,23 +54,26 @@ def build_scoreboard_from_match(match: dict) -> dict:
         wickets = 0
         balls = 0
 
-        batting_stats = {}   # name -> {runs, balls, fours, sixes, out}
-        bowling_stats = {}   # name -> {runs, balls, wickets, maidens}
+        batting_stats = {}
+        bowling_stats = {}
         extras = {"b": 0, "lb": 0, "w": 0, "nb": 0, "p": 0}
-        fow = []             # [{score, wicket, batter, over}, ...]
+        fow = []
+        overs_summary = []
 
-        overs_summary = []   # [{over_number, runs, wickets, balls: [{result}]}]
-
-        # track per-over runs/wickets for Manhattan/overs
         for over in overs:
             over_no = over.get("over")
-            deliveries = over.get("deliveries", [])
+            if inn_index == upto_innings and over_no > upto_over:
+                break
 
+            deliveries = over.get("deliveries", [])
             over_runs = 0
             over_wkts = 0
             over_balls_list = []
 
             for ball_index, d in enumerate(deliveries, start=1):
+                if inn_index == upto_innings and over_no == upto_over and ball_index > upto_ball:
+                    break
+
                 r_total = d.get("runs", {}).get("total", 0)
                 r_batter = d.get("runs", {}).get("batter", 0)
 
@@ -107,8 +116,6 @@ def build_scoreboard_from_match(match: dict) -> dict:
                     extras["nb"] += ex["noballs"]
                 if "byes" in ex:
                     extras["b"] += ex["byes"]
-                # penalty not present in this file, but keep key
-                # extras["p"] stays 0
 
                 # Wickets
                 if "wickets" in d:
@@ -129,7 +136,7 @@ def build_scoreboard_from_match(match: dict) -> dict:
                         if bowler:
                             bowling_stats[bowler]["wickets"] += 1
 
-                # Simple event text
+                # Event text
                 events_out.append(
                     {
                         "over": over_no,
@@ -138,7 +145,6 @@ def build_scoreboard_from_match(match: dict) -> dict:
                     }
                 )
 
-                # For overs timeline
                 result_label = "W" if "wickets" in d else str(r_total)
                 over_balls_list.append({"result": result_label})
 
@@ -186,11 +192,7 @@ def build_scoreboard_from_match(match: dict) -> dict:
             }
         )
 
-    match_title = ""
-    if len(teams) == 2:
-        match_title = f"{teams[0]} vs {teams[1]}"
-    else:
-        match_title = event_name or "Live Cricket Match"
+    match_title = f"{teams[0]} vs {teams[1]}" if len(teams) == 2 else event_name
 
     return {
         "match_title": match_title,
@@ -200,14 +202,12 @@ def build_scoreboard_from_match(match: dict) -> dict:
         "innings": innings_out,
         "events": events_out,
     }
-
-
 # ---------------------------------------------------------
-# Run match: store JSON from frontend
+# Run match: store JSON from frontend and start simulation
 # ---------------------------------------------------------
 @app.post("/run-match/{match_id}")
 async def run_match(match_id: str, match: dict = Body(...)):
-    global current_match_id
+    global current_match_id, simulation_running, simulation_task
 
     if not isinstance(match, dict):
         raise HTTPException(400, "Match payload must be a JSON object")
@@ -216,14 +216,20 @@ async def run_match(match_id: str, match: dict = Body(...)):
         raise HTTPException(400, "Match JSON missing innings")
 
     active_matches[match_id] = match
-    active_connections[match_id] = []
-    current_match_id = match_id  # <-- this is what /ws will use
+    current_match_id = match_id
+
+    # (Re)start simulation for scoreboard
+    if simulation_task and not simulation_task.done():
+        simulation_task.cancel()
+
+    simulation_running = True
+    simulation_task = asyncio.create_task(simulate_match_for_scoreboard(match_id))
 
     return {"status": "ready", "match_id": match_id}
 
 
 # ---------------------------------------------------------
-# WebSocket: stream ball‑by‑ball events (animation/debug)
+# WebSocket: raw ball‑by‑ball events (animation/debug)
 # ---------------------------------------------------------
 @app.websocket("/ws/match/{match_id}")
 async def ws_match(websocket: WebSocket, match_id: str):
@@ -235,10 +241,8 @@ async def ws_match(websocket: WebSocket, match_id: str):
         return
 
     match = active_matches[match_id]
-    active_connections.setdefault(match_id, []).append(websocket)
 
     try:
-        # Send meta first
         info = match.get("info", {})
         await websocket.send_json(
             {
@@ -251,8 +255,6 @@ async def ws_match(websocket: WebSocket, match_id: str):
 
         innings = match.get("innings", [])
 
-        # CORRECT CRICSHEET STRUCTURE:
-        # innings[] → { "team": "...", "overs": [ { "over": 0, "deliveries": [ {...}, {...} ] } ] }
         for inning_index, inning in enumerate(innings, start=1):
             team_name = inning.get("team", f"Innings {inning_index}")
             overs = inning.get("overs", [])
@@ -272,10 +274,8 @@ async def ws_match(websocket: WebSocket, match_id: str):
                             "event": delivery,
                         }
                     )
-
                     await asyncio.sleep(0.35)
 
-        # Match complete
         await websocket.send_json({"type": "end"})
         await websocket.close()
 
@@ -289,10 +289,53 @@ async def ws_match(websocket: WebSocket, match_id: str):
             pass
         await websocket.close()
 
-    finally:
-        conns = active_connections.get(match_id, [])
-        if websocket in conns:
-            conns.remove(websocket)
+
+# ---------------------------------------------------------
+# Simulation engine: play match ball‑by‑ball for scoreboard
+# ---------------------------------------------------------
+async def simulate_match_for_scoreboard(match_id: str):
+    global simulation_running
+
+    if match_id not in active_matches:
+        simulation_running = False
+        return
+
+    match = active_matches[match_id]
+    innings = match.get("innings", [])
+
+    # We simulate innings sequentially: 1, 2, ...
+    upto_innings = 1
+    upto_over = 0
+    upto_ball = 0
+
+    for inn_index, inn in enumerate(innings, start=1):
+        team_name = inn.get("team", f"Innings {inn_index}")
+        overs = inn.get("overs", [])
+
+        for over in overs:
+            over_no = over.get("over")
+            deliveries = over.get("deliveries", [])
+
+            for ball_index, delivery in enumerate(deliveries, start=1):
+                # Update simulation cursor
+                upto_innings = inn_index
+                upto_over = over_no
+                upto_ball = ball_index
+
+                # Build partial scoreboard up to this ball
+                scoreboard = build_scoreboard_state(
+                    match,
+                    upto_innings=upto_innings,
+                    upto_over=upto_over,
+                    upto_ball=upto_ball,
+                )
+
+                # Store back so /ws can read latest state
+                active_matches[match_id]["__scoreboard_state"] = scoreboard
+
+                await asyncio.sleep(0.35)  # pace of the "live" match
+
+    simulation_running = False
 
 
 # ---------------------------------------------------------
@@ -308,6 +351,7 @@ async def ws_scoreboard(websocket: WebSocket):
                 await websocket.send_json(
                     {
                         "match_title": "Live Cricket Match",
+                        "venue": "",
                         "is_live": False,
                         "status_text": "Waiting for match…",
                         "innings": [],
@@ -316,10 +360,36 @@ async def ws_scoreboard(websocket: WebSocket):
                 )
             else:
                 match = active_matches[current_match_id]
-                scoreboard = build_scoreboard_from_match(match)
-                await websocket.send_json(scoreboard)
+                scoreboard = match.get("__scoreboard_state")
 
-            await asyncio.sleep(0.5)
+                if not scoreboard:
+                    # No simulation yet: send minimal shell
+                    info = match.get("info", {})
+                    teams = info.get("teams", [])
+                    venue = info.get("venue", "")
+                    event = info.get("event", {})
+                    event_name = event.get("name", "")
+
+                    title = (
+                        f"{teams[0]} vs {teams[1]}"
+                        if len(teams) == 2
+                        else event_name or "Live Cricket Match"
+                    )
+
+                    await websocket.send_json(
+                        {
+                            "match_title": title,
+                            "venue": venue,
+                            "is_live": True,
+                            "status_text": "Match in progress",
+                            "innings": [],
+                            "events": [],
+                        }
+                    )
+                else:
+                    await websocket.send_json(scoreboard)
+
+            await asyncio.sleep(0.3)
 
     except WebSocketDisconnect:
         pass
@@ -330,8 +400,6 @@ async def ws_scoreboard(websocket: WebSocket):
         except:
             pass
         await websocket.close()
-
-
 # ---------------------------------------------------------
 # Cricsheet loader
 # ---------------------------------------------------------
@@ -398,7 +466,7 @@ def world_cup_index():
 
             matches.append(
                 {
-                    "file": name,  # FIXED: return only filename
+                    "file": name,
                     "year": year,
                     "teams": teams,
                 }
